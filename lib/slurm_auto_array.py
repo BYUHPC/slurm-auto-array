@@ -1,0 +1,409 @@
+#!/usr/bin/env python3
+
+
+
+
+
+"""
+This script is meant to help users submit job arrays easily. Much like GNU parallel, it takes a newline-delimited list
+of arguments and optionally runs a user-supplied command on each argument using a job array. task.sh in the utils
+directory is the batch script that is used to run the commands.
+
+The job array consists of up to 1000 (by default) tasks, each of which will run one or more instances of the command
+(hence "work units"). The amount of work units to run per array task is chosen to try to go easy on the scheduler and
+maximize throughput, although the desired array task size can be changed by the user. By default each array task will
+use up to 4 CPUs, 1 GPU, and 16G memory for up to 6 hours. If the work units cannot be squeezed into such small tasks,
+or cannot fit into such small tasks without exceeding 1000 total tasks, the time limit is increased to up to 1 day by
+default; if that is still insufficient the default array task limits are discarded and "fatter" tasks are submitted.
+
+In order to pass stdin to task.sh, a temporary file (arg_file) is created in the directory specified by
+SAA_ARG_FILE_DIR; it will be automatically deleted on job completion.
+"""
+
+
+
+
+
+import re, os, sys, subprocess, argparse, math, shlex, logging, random, string
+
+
+
+
+
+# USAGE ################################################################################################################
+
+usage = """slurm-auto-array automates the submission of sbatch job arrays. It takes a newline-delimited (by default) set
+           of commands on stdin and submits a job array that runs an optional user-specified command on each argument.
+           For example, one could run 'myprog.sh' on every file ending with '.dat' in the current directory using
+           'ls *.dat | slurm-auto-array -- myprog.sh'. Multiple instances of the command may run per array task (e.g. 24
+           instances of your command could be run in 3 array tasks with 8 instances each); you can control the size of
+           the array tasks with the '--per-task-*' flags. If you wish to specify part of the command from the command
+           line, for example to run a single command with fixed arguments on several files, add
+           '-- command [arg1 [arg2 ...]]' to the end of the slurm-auto-array invocation.
+           
+           In addition to the listed arguments, any sbatch arguments that won't interfere with slurm-auto-array's
+           operation can be supplied; see the man page for a list."""
+
+epilog = "See the man page or https://rc.byu.edu/wiki/?id=slurm-auto-array for more details and examples."
+
+########################################################################################################################
+
+
+
+
+
+# FORMAT CONVERSION FUNCTIONS ##########################################################################################
+
+# Convert a time string (specification in `man sbatch`) or integer to minutes, ignoring seconds (since so does Slurm)
+def time_to_mins(time):
+    time_str = str(time)
+    if re.match(r"^\d+$", time_str):               # minutes
+        return int(time_str)
+    elif re.match(r"^\d+:\d+$", time_str):         # minutes:seconds
+        minutes, seconds = time_str.split(":")
+        return int(minutes)
+    elif re.match(r"^\d+:\d+:\d+$", time_str):     # hours:minutes:seconds
+        hours, minutes, seconds = time_str.split(":")
+        return 60 * int(hours) + int(minutes)
+    elif re.match(r"^\d+-\d+$", time_str):         # days-hours
+        days, hours = time_str.split("-")
+        return 24 * 60 * int(days) + 60 * int(hours)
+    elif re.match(r"^\d+-\d+:\d+$", time_str):     # days-hours:minutes
+        days, hours_minutes = time_str.split("-")
+        hours, minutes = hours_minutes_seconds.split(":")
+        return 24 * 60 * int(days) + 60 * int(hours) + int(minutes)
+    elif re.match(r"^\d+-\d+:\d+:\d+$", time_str): # days-hours:minutes:seconds
+        days, hours_minutes_seconds = time_str.split("-")
+        hours, minutes, seconds = hours_minutes_seconds.split(":")
+        return 24 * 60 * int(days) + 60 * int(hours) + int(minutes)
+    else:
+        raise ValueError(f"Time specification {time_str} invalid")
+    # TODO: return once, use `positive_int`
+
+# Convert a memory string (<number>{K|M|G|T}) to megabytes
+def mem_to_mb(mem):
+    mem_str = str(mem)
+    for suffix, multiplier in [('K', 1024**-1), ('M', 1), ('', 1), ('G', 1024), ('T', 1024**2)]:
+        if re.match(f'^\d+{suffix}$', mem_str, re.IGNORECASE):
+            return positive_int(re.sub(r'[a-zA-Z]', '', mem_str)) * multiplier
+    raise ValueError(f'Memory specification {mem_str} invalid')
+
+# Positive int
+def positive_int(arg):
+    iarg = int(arg)
+    if iarg <= 0:
+        raise ValueError(f'Expected a positive integer; got {arg}')
+    return iarg
+
+# Non-negative int
+def nonnegative_int(arg):
+    iarg = int(arg)
+    if iarg < 0:
+        raise ValueError(f'Expected a nonnegative integer; got {arg}')
+    return iarg
+
+########################################################################################################################
+
+
+
+
+
+# ALLOCATION SIZE ######################################################################################################
+
+# A class that contains the size (in CPUs, GPUs, memory, and time) of an allocation
+class AllocationSize:
+    def __init__(self, *args):
+        # Construct from allocation size string
+        cgmt = args[0].split(",") if len(args) == 1 else args
+        self.cpus = positive_int(cgmt[0])
+        self.gpus = nonnegative_int(cgmt[1])
+        self.mem  = mem_to_mb(cgmt[2])
+        self.time = time_to_mins(cgmt[3])
+        # TODO: error handling
+
+    def __repr__(self):
+        return f"{self.cpus},{self.gpus},{self.mem}M,{self.time}"
+
+
+
+def array_task_size_and_count(work_unit_count, work_unit_size, requested_array_task_size, max_walltime,
+                              max_array_task_count):
+    # Determine the requested width, length, and count of array tasks
+    requested_width = math.floor(min(requested_array_task_size.cpus / work_unit_size.cpus,
+                                     requested_array_task_size.gpus / work_unit_size.gpus if work_unit_size.gpus
+                                                                                          else math.inf,
+                                     requested_array_task_size.mem  / work_unit_size.mem)) or 1
+    requested_length = math.floor(requested_array_task_size.time / work_unit_size.time) or 1
+    requested_array_task_count = math.ceil(work_unit_count / (requested_width * requested_length))
+
+    # By what factor does the requested array task size need to be increased, if at all?
+    size_multiplier = math.ceil(requested_array_task_count / max_array_task_count)
+    length_multiplier = min(math.floor(max_walltime / requested_array_task_size.time), size_multiplier)
+    width_multiplier = math.ceil(size_multiplier / length_multiplier)
+
+    # Determine total width and length of array tasks
+    width = requested_width * width_multiplier
+    length = requested_length * length_multiplier
+
+    # Calculate and return array task size and count
+    array_task_size = AllocationSize(work_unit_size.cpus * width,
+                                     work_unit_size.gpus * width,
+                                     work_unit_size.mem  * width,
+                                     work_unit_size.time * length)
+    array_task_count = math.ceil(work_unit_count / (width * length))
+    return array_task_size, array_task_count
+
+########################################################################################################################
+
+
+
+
+
+# PARSING ##############################################################################################################
+
+# Parse a file (if the first element of command is a filename) for #SBATCH flags, and return the amended command
+def file_sbatch_flags(command):
+    """
+    If the name of a file in the working directory shadows a command in PATH, the file will be used, just as with sbatch
+    """
+    filename = shlex.split(command)[0]
+    if not filename or not os.path.isfile(filename):
+        return command, []
+    flags = []
+    try:
+        with open(filename, "r") as f:
+            first_line = True
+            for line in (line.strip() for line in f):
+                if first_line and line[:2] == "#!":
+                    command = line[2:] + ' ' + command
+                first_line = False
+                if line and line[0] != "#":
+                    return command, flags
+                elif line[0:7] == "#SBATCH":
+                    for flag in shlex.split(line[8:]):
+                        if flag and flag[0] == "#": break
+                        flags.append(flag)
+    except UnicodeDecodeError: # not a legitimate text file
+        logging.info(f"file '{filename}' is not a text file and will not be parsed for '#SBATCH' flags")
+        return command, []
+    return command, flags
+
+
+
+# Read in configuration from the environment and/or config file
+def get_config():
+    default_arg_file_dir = os.path.join(os.path.expanduser("~"), ".local", "share", "saa-arg-file-dir")
+    user_config = os.path.join(os.path.expanduser("~"), ".config", "slurm-auto-array.conf")
+    global_config = os.path.join("etc", "slurm-auto-array.conf")
+    config_file = os.getenv("SAA_CONFIG_FILE", user_config   if os.path.isfile(user_config)   else
+                                               global_config if os.path.isfile(global_config) else None)
+
+    config_dict = {}
+    if config_file:
+        with open(config_file) as f:
+            for line in f.readlines():
+                key, value = line.split(" ", 1)
+                config_dict[key] = value
+
+    def mkdir_if_possible(dirname):
+        try:
+            os.makedirs(dirname, exist_ok=True)
+            return dirname
+        except OSError:
+            raise ValueError(f"Couldn't create directory {dirname}")
+
+    def get_value(f, name, default):
+        try:
+            return f(config_dict[name] if name in config_dict else os.getenv(name, default))
+        except ValueError:
+            logging.warning(f"{name} set to invalid value; using default of {default}")
+            return f(default)
+
+    return (get_value(transform, name, default)
+            for name, default, transform in (("SAA_ARG_FILE_DIR",            default_arg_file_dir,   mkdir_if_possible),
+                                             ("SAA_MAX_WALLTIME",            "1-00:00:00",           time_to_mins),
+                                             ("SAA_MAX_ARRAY_TASKS",         "1000",                 positive_int),
+                                             ("SAA_DEFAULT_WORK_UNIT_SIZE",  "1,0,2G,1:00:00",       AllocationSize),
+                                             ("SAA_DEFAULT_ARRAY_TASK_SIZE", "4,1,16G,6:00:00",      AllocationSize),
+                                             ("SAA_MAX_WORK_UNIT_SIZE",      "16,2,64G,1-00:00:00",  AllocationSize),
+                                             ("SAA_MAX_ARRAY_TASK_SIZE",     "256,32,1T,1-00:00:00", AllocationSize)))
+    # TODO: SAA_MAX_WORK_UNIT_SIZE and SAA_MAX_ARRAY_TASK_SIZE don't currently do anything
+
+
+
+# Parse arguments, including filtering out sbatch arguments that would interfere with our splitting of work
+# Single-letter arguments that sbatch doesn't use: E, f, g, I, j, K, l, P, r, R, T, u, U, X, y, Y, z, Z
+# Already in use by us:                                              ^           ^     ^
+def parse(default_work_unit_size, default_array_task_size, args=sys.argv[1:]):
+    # Cut off everything after "--"
+    command = []
+    try:
+        split = args.index("--")
+        command = args[split+1:]
+        args = args[:split]
+    except ValueError:
+        pass
+    # Make sure we don't have any no-no arguments
+    for arg in ["-a", "--array",
+                "--cpus-per-gpu",
+                "--cpus-per-task",
+                "--gpus-per-node",
+                "--gpus-per-socket",
+                "--gpus-per-task",
+                "--ntasks-per-core",
+                "--ntasks-per-node",
+                "--ntasks-per-socket",
+                "--wrap"]:
+        if any(filter(re.compile(f"^{arg}(=.*)?$").match, args)):
+            raise ValueError(f"sbatch argument '{arg}' disallowed")
+    # Parse main arguments
+    parser = argparse.ArgumentParser(description=usage, epilog=epilog)
+    parser.add_argument("-V", "--version", action="version", version="@VERSION")
+    parser.add_argument("--delimiter", metavar="D", default="\\n",
+                        help="string or regular expression separating work unit command lines; newline by default")
+    parser.add_argument("-n", "--ntasks", metavar="N", type=positive_int,
+                        help=f"number of CPUs required by each unit of work ({default_work_unit_size.cpus} by default)")
+    parser.add_argument("-G", "--gpus", metavar="N", type=nonnegative_int,
+                        help=f"number of GPUs required by each unit of work ({default_work_unit_size.gpus} by default)")
+    memgrp = parser.add_mutually_exclusive_group()
+    memgrp.add_argument("-m", "--mem", metavar="N{K|M|G|T}", help="memory required by each unit of work")
+    memgrp.add_argument("--mem-per-cpu", metavar="N{K|M|G|T}",
+                        help=f"memory required by each CPU ({default_work_unit_size.mem}M by default)")
+    memgrp.add_argument("--mem-per-gpu", metavar="N{K|M|G}", help="memory required by each GPU")
+    parser.add_argument("-t",  "--time", metavar="D-HH:MM:SS",
+                        help=f"time required by each work unit ({default_work_unit_size.time} mins by default); see sbatch(1) for formatting")
+    parser.add_argument("-U", "--work-unit-size", metavar="CPUs,GPUs,mem,time", type=AllocationSize,
+                        default=default_work_unit_size,
+                        help=f"Allocation size of each work unit, with respective formats those of -n, -G, -m, and -t ({default_work_unit_size} by default); this argument has lower precedence than the individual arguments it represents") 
+    parser.add_argument("-T", "--array-task-size", metavar="CPUs,GPUs,mem,time", type=AllocationSize,
+                        default=default_array_task_size,
+                        help=f"Maximum allocation size of each array task, with the same format as -U ({default_array_task_size} by default)")
+    parser.add_argument("-l", "--logfile", metavar="output.log", default="slurm-auto-array-%A.log",
+                        help="slurm-auto-array log file. Setting to /dev/null will suppress all output, including output and error files (slurm-auto-array-%%A.log by default)")
+    parser.add_argument("-o", "--output", metavar="output.out", default="slurm-auto-array-%A_%a.out",
+                        help=r"File (with optional formatting) to which to write stdout for each array task; only a subset of sbatch's formatting options are supported, namely %%a, %%A, %%N, %%u, and %%x; see sbatch(1) (slurm-auto-array-%%A_%%a.out by default)")
+    parser.add_argument("-e", "--error", metavar="output.err", default=None,
+                        help="Analogous to output, but for stderr (stderr goes to output file by default)")
+    parser.add_argument("--open-mode", metavar="{append|truncate}", default="truncate",
+                        help="Open log, output, and error files in the specified mode; see sbatch(1).")
+    parser.add_argument("-v", "--verbose", action="store_true", help="print verbose output")
+    parser.add_argument("--dry-run", action="store_true", help="don't submit, but print what would have been done")
+    parser.add_argument("-H", "--hold", action="store_true", help=argparse.SUPPRESS)
+    # Return a pair: (known_arguments, other_arguments); other_arguments should be slurm args
+    args, slurm_args = parser.parse_known_args(args)
+    if args.error is None:
+        args.error = args.output
+    return args, slurm_args, command
+
+########################################################################################################################
+
+
+
+
+
+# MAIN #################################################################################################################
+
+def main(cmd_line_args=sys.argv[1:]):
+    # Parse
+    arg_file_dir, max_walltime, max_array_task_count, default_work_unit_size, default_array_task_size, \
+            max_work_unit_size, max_array_task_size = get_config()
+    args, sbatch_args, command = parse(default_work_unit_size, default_array_task_size, cmd_line_args)
+    logging.basicConfig(format="%(levelname)s: %(message)s", level=logging.INFO if args.verbose else logging.WARNING)
+    if not os.path.exists(os.path.expanduser("~/.parallel/will-cite")):
+        logging.warning("You must run `parallel --citation` before using slurm-auto-array--exiting")
+        sys.exit(1)
+    if not os.path.exists(os.path.expanduser("~/.parallel/ignored_vars")):
+        logging.warning("You must run `parallel --record-env` in a clean environment before using slurm-auto-array--exiting")
+        sys.exit(1)
+
+    # Get arguments from stdin to figure out how many work units there are
+    delimiter_literal = args.delimiter.encode("ascii", "ignore").decode("unicode_escape")
+    work_unit_args = [line for line in sys.stdin.read().split(delimiter_literal) if line]
+    work_unit_count = len(work_unit_args)
+    if not work_unit_count:
+        print("No arguments provided--exiting")
+        sys.exit(1)
+
+    # Determine size of work units
+    work_unit_size = args.work_unit_size
+    if args.ntasks:        work_unit_size.cpus = args.ntasks
+    if args.gpus:          work_unit_size.gpus = args.gpus
+    if args.mem:           work_unit_size.mem  = mem_to_mb(args.mem)
+    elif args.mem_per_gpu: work_unit_size.mem  = mem_to_mb(args.mem_per_gpu) * args.gpus
+    elif args.mem_per_cpu: work_unit_size.mem  = mem_to_mb(args.mem_per_cpu) * args.ntasks
+    if args.time:          work_unit_size.time = time_to_mins(args.time)
+    if not work_unit_size.mem:
+        raise ValueError("Flawed or missing memory specification")
+
+    # Determine size of array tasks
+    array_task_size, array_task_count = array_task_size_and_count(work_unit_count, args.work_unit_size,
+                                                                  args.array_task_size, max_walltime,
+                                                                  max_array_task_count)
+    # TODO: add a warning if work unit size exceeds specified array task size?
+
+    # Let the user know what's been parsed if verbose
+    logging.info( "Finished parsing arguments; final values:")
+    if command:
+        logging.info( "--- command to be run ---")
+        logging.info(f"    {' '.join(command)}")
+    logging.info( "--- per work unit ---")
+    logging.info(f"    CPUs:        {work_unit_size.cpus}")
+    logging.info(f"    GPUs:        {work_unit_size.gpus}")
+    logging.info(f"    memory (MB): {work_unit_size.mem}")
+    logging.info(f"    time (mins): {work_unit_size.time}")
+    logging.info( "--- per job array task ---")
+    logging.info(f"    CPUs:        {array_task_size.cpus}")
+    logging.info(f"    GPUs:        {array_task_size.gpus}")
+    logging.info(f"    memory (MB): {array_task_size.mem}")
+    logging.info(f"    time (mins): {array_task_size.time}")
+    logging.info(f"--- {work_unit_count} total work units ---")
+    logging.info(f"--- {math.ceil(work_unit_count/array_task_count)} work units per array task ---")
+    logging.info(f"--- {array_task_count} job array tasks ---")
+
+    # Prepare job submission command
+    arg_file_prefix = os.path.join(arg_file_dir, "".join(random.choice(string.ascii_lowercase) for i in range(32)))
+    batch_script = os.path.join(os.path.dirname(os.path.realpath(__file__)), "task.sh")
+    work_unit_script = os.path.join(os.path.dirname(os.path.realpath(__file__)), "work_unit.py")
+    ntasks = math.ceil(array_task_size.cpus/work_unit_size.cpus)
+    sbatch_args += [f"--output={args.logfile}",
+                    f"--open-mode={args.open_mode}",
+                    f"--ntasks={ntasks}",
+                    f"--cpus-per-task={work_unit_size.cpus}",
+                    f"--mem-per-cpu={math.ceil(work_unit_size.mem/work_unit_size.cpus)}",
+                    f"--time={array_task_size.time}",
+                    f"--array=1-{array_task_count}"]
+    if work_unit_size.gpus: sbatch_args.append(f"--gpus-per-task={work_unit_size.gpus}")
+    submit_command = ["sbatch"] + sbatch_args \
+                   + [batch_script, arg_file_prefix, delimiter_literal, work_unit_script, args.output, args.error,
+                      "a" if args.open_mode == "append" else "w"] \
+                   + command
+
+    # Set a couple of environment variables TODO: not sure if str is necessary
+    os.environ["OMP_NUM_THREADS"] = str(work_unit_size.cpus)
+
+    # If this is a dry run, print what would have happened and exit here
+    if args.dry_run:
+        print("Job that would have been submitted: " + " ".join(submit_command))
+        sys.exit()
+
+    # Write arguments to files for each job array task
+    os.makedirs(arg_file_dir, exist_ok=True)
+    for i in range(array_task_count):
+        with open(f"{arg_file_prefix}-{i+1}.in", "w") as f:
+            this_work_unit_args = work_unit_args[i::array_task_count]
+            this_work_unit_indices = range(work_unit_count)[i::array_task_count]
+            f.write(delimiter_literal.join(f"{i+1} {arg}" for arg, i in zip(this_work_unit_args, this_work_unit_indices)))
+
+    # Submit the job
+    try:
+        logging.info("Submission command: " + " ".join(submit_command))
+        subprocess.run(submit_command, stderr=subprocess.STDOUT)
+    except subprocess.CalledProcessError as e:
+        logging.error("sbatch failed to properly submit job")
+        logging.error(e.output.decode().strip())
+        sys.exit(e.returncode)
+
+
+
+if __name__ == "__main__":
+    main()
