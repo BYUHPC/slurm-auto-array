@@ -11,9 +11,6 @@ shift
 delimiter="$1"
 shift
 
-# Clean up work file on failure
-trap "rm '$infile'" EXIT
-
 # Determine how many tasks should be run on which nodes
 ssh_login_file="$(mktemp)"
 trap 'rm "$ssh_login_file" "$infile"' EXIT
@@ -28,4 +25,4 @@ parallel --arg-file "$infile" \
          --jobs "$SLURM_NTASKS" \
          --ssh "ssh -o ServerAliveInterval=300" --sshloginfile "$ssh_login_file" \
          --workdir . \
-         python3 "$@" {}
+         python3 "$@" {} & wait

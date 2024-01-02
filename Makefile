@@ -4,7 +4,7 @@ MAN = share/man/man1/slurm-auto-array.1
 
 .PHONY: install
 install:
-	cp -r --preserve=mode bin lib VERSION.txt "$(DESTDIR)"
+	cp -r --preserve=mode bin libexec VERSION.txt "$(DESTDIR)"
 	mkdir -p "$(DESTDIR)"/share/man/man1/
 	cp $(MAN) "$(DESTDIR)"/$(MAN)
 
