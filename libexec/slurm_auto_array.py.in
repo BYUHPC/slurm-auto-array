@@ -46,6 +46,8 @@ usage = """slurm-auto-array automates the submission of sbatch job arrays. It ta
 
 epilog = "See the man page or https://rc.byu.edu/wiki/?id=slurm-auto-array for more details and examples."
 
+version = "SAA_VERSION_STRING" # this gets substituted by make
+
 ########################################################################################################################
 
 
@@ -258,7 +260,7 @@ def parse(default_work_unit_size, default_array_task_size, args=sys.argv[1:]):
             raise ValueError(f"sbatch argument '{arg}' disallowed")
     # Parse main arguments
     parser = argparse.ArgumentParser(description=usage, epilog=epilog)
-    parser.add_argument("-V", "--version", action="version", version="@VERSION")
+    parser.add_argument("-V", "--version", action="version", version=version)
     parser.add_argument("--delimiter", metavar="D", default="\\n",
                         help="string or regular expression separating work unit command lines; newline by default")
     parser.add_argument("-n", "--ntasks", metavar="N", type=positive_int,

@@ -1,4 +1,8 @@
-# slurm-auto-array 1 "@DATE" @VERSION "BYU Office of Research Computing"
+---
+title: GRADE
+section: 1
+header: BYU Office of Research Computing
+---
 
 
 

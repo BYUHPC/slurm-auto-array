@@ -1,1 +1,10 @@
 **/__pycache__
+aclocal.m4
+config.log
+config.status
+configure
+install-sh
+Makefile.in
+missing
+libexec/slurm_auto_array.py
+autom4te.cache
