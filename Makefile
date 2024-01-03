@@ -11,3 +11,7 @@ install:
 .PHONY: man # run this before commit
 man:
 	$(MD2MAN) < $(MAN).md | sed "s/@VERSION/$(shell cat VERSION.txt)/g; s/@DATE/$(shell date +'%B %Y')/g" > $(MAN)
+
+.PHONY: test
+test:
+	bats test/test.bats

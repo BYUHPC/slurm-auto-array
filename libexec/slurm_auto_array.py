@@ -288,7 +288,6 @@ def parse(default_work_unit_size, default_array_task_size, args=sys.argv[1:]):
                         help="Open log, output, and error files in the specified mode; see sbatch(1).")
     parser.add_argument("-v", "--verbose", action="store_true", help="print verbose output")
     parser.add_argument("--dry-run", action="store_true", help="don't submit, but print what would have been done")
-    parser.add_argument("-H", "--hold", action="store_true", help=argparse.SUPPRESS)
     # Return a pair: (known_arguments, other_arguments); other_arguments should be slurm args
     args, slurm_args = parser.parse_known_args(args)
     if args.error is None:
@@ -407,3 +406,8 @@ def main(cmd_line_args=sys.argv[1:]):
 
 if __name__ == "__main__":
     main()
+
+
+
+# TODO
+# - Put a job ID at the top of argument files so slurm-auto-array can automatically clean up any that didn't get cleaned by the jobs.
