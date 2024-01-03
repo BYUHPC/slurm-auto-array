@@ -13,6 +13,9 @@ man1_MANS = $(MAN)
 $(MAN): $(MAN).md
 	pandoc -s $< -t man -o $@ -V footer="grade @VERSION@" -V date="@DATE@"
 
+# Testing
+TESTS = test/test.bats
+
 CLEANFILES = $(MAN) $(SAAPY)
 
 EXTRA_DIST = $(bin_SCRIPTS) $(libexec_SCRIPTS) $(MAN) $(MAN).md README.md LICENSE

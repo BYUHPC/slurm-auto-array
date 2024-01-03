@@ -4,7 +4,9 @@ config.log
 config.status
 configure
 install-sh
+Makefile
 Makefile.in
 missing
 libexec/slurm_auto_array.py
 autom4te.cache
+share/man/man1/slurm-auto-array.1

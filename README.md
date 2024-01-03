@@ -12,17 +12,20 @@ Although we've found `slurm-auto-array` to work well for many users on our syste
 
 ## Installation
 
-`slurm-auto-array` requires [Slurm](https://slurm.schedmd.com/overview.html), [GNU Parallel](https://www.gnu.org/software/parallel/), and Python (3.6 or higher).
+`slurm-auto-array` requires [Slurm](https://slurm.schedmd.com/overview.html), [GNU Parallel](https://www.gnu.org/software/parallel/), and Python (3.6 or higher) at runtime. Pandoc is required to install from this repository, and `bats` is required to run `make check`.
 
 Given that you want to install in `/my/software/slurm-auto-array`:
 
 ```shell
-make install DESTDIR=/my/software/slurm-auto-array
+aclocal
+autoconf
+automake --add-missing
+./configure --prefix=/my/software/slurm-auto-array
+make check
+make install
 ```
 
-You'll need to run `parallel --citation; parallel --record-env` in a clean environment before `slurm-auto-array` will work.
-
-Maintainers should run `make man` to regenerate `share/man/man1/slurm-auto-array.1` whenever `share/man/man1/slurm-auto-array.1.md` or `VERSION.txt` are updated; you'll need [`go-md2man`](https://github.com/cpuguy83/go-md2man).
+You'll need to run `parallel --citation; parallel --record-env` in a clean environment before `slurm-auto-array` or `make check` will work.
 
 
 
@@ -45,5 +48,6 @@ Documentation and tests are by far the most important improvements needed. Outsi
 - Functionality similar to `parallel`'s "`:::`" to allow users to cross sets of arguments
 - Dynamic scheduling with a work database and consumer workers
 - Add parsing of `#SAA` arguments in submission scripts
+- A release tarball and instructions on `make dist`
 
 In addition to the usual bugs and feature requests, please open an issue if you find any of the documentation confusing--the original purpose of `slurm-auto-array` was to make it easy for users to submit job arrays, and bad documentation defeats that core purpose.

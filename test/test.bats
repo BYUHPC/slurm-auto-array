@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/usr/bin/env bats
 
 # CONDITIONS FOR TESTING:
 # Slurm is installed and working, and you're able to submit small jobs
@@ -40,5 +40,7 @@ teardown_file() {
 @test "basic job submission works" {
     local ARGS="$(echo -e 'A\nB\nC')"
     submit_job "$ARGS" --wait -U 1,0,1G,1 -l "$SAA_TESTING_DIR/basic-test.log" -o "$SAA_TESTING_DIR/basic-test-%a.out" -- echo arguments supplied:
+    ls "$SAA_TESTING_DIR"
+    cat "$SAA_TESTING_DIR"/*
     test "$(cat "$SAA_TESTING_DIR/basic-test-3.out")" = "arguments supplied: C"
 }
