@@ -12,7 +12,7 @@ Although we've found `slurm-auto-array` to work well for many users on our syste
 
 ## Installation
 
-`slurm-auto-array` requires [Slurm](https://slurm.schedmd.com/overview.html), [GNU Parallel](https://www.gnu.org/software/parallel/), and Python (3.6 or higher) at runtime. Pandoc is required to install from this repository (but *not* to install from a [release](https://github.com/BYUHPC/slurm-auto-array/releases)), and `bats` and Slurm are required to run `make check`.
+`slurm-auto-array` requires [Slurm](https://slurm.schedmd.com/overview.html), [GNU Parallel](https://www.gnu.org/software/parallel/), and Python (3.6 or higher) at runtime. Pandoc is required to install from this repository (but *not* to install from a [release](https://github.com/BYUHPC/slurm-auto-array/releases)), and `bats` and all the runtime dependencies are required to run `make check`.
 
 Given that you want to install in `/my/software/slurm-auto-array`:
 
