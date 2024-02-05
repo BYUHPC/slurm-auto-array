@@ -1,9 +1,9 @@
 # `slurm-auto-array`
 
-`slurm-auto-array` provides users of [`sbatch`](https://slurm.schedmd.com/sbatch.html) an easier way to submit [job arrays](https://slurm.schedmd.com/job_array.html), especially when their **work units** are very small and/or very numerous. Rather than creating a mapping from [`SLURM_ARRAY_TASK_ID`](https://slurm.schedmd.com/job_array.html#env_vars) to the arguments they want to run a command on, they supply said arguments directly over stdin much like one would with [`parallel`](https://www.gnu.org/software/parallel/) or [`xargs`](https://manpages.org/xargs). For example, to run `mycmd --infile $FILE` on every `FILE` with a name ending in "`.in`" in the directory `infiles`, allowing each work unit 1 GiB of memory and a processor for an hour, one could use:
+`slurm-auto-array` provides users of [`sbatch`](https://slurm.schedmd.com/sbatch.html) an easier way to submit [job arrays](https://slurm.schedmd.com/job_array.html), especially when their **work units** are very small and/or very numerous. Rather than manually creating a mapping from [`SLURM_ARRAY_TASK_ID`](https://slurm.schedmd.com/job_array.html#env_vars) to the arguments they want to run a command on, they supply said arguments directly over stdin much like one would with [`parallel`](https://www.gnu.org/software/parallel/) or [`xargs`](https://manpages.org/xargs). For example, to run `mycmd --infile $FILE` on every `FILE` with a name ending in "`.in`" in the directory `infiles`, allowing each work unit 1 GiB of memory and a processor for an hour, one could use:
 
 ```shell
-ls infiles/*.in | slurm-auto-array --time 1:00 --ntasks 1 --mem 1G -- mycmd --infile
+ls infiles/*.in | slurm-auto-array --time 1:00:00 --ntasks 1 --mem 1G -- mycmd --infile
 ```
 
 Although we've found `slurm-auto-array` to work well for many users on our system, it's still a rough draft that hasn't been tested elsewhere--**treat it as early beta software**. [slurm-array-submit](https://github.com/juliangilbey/slurm-array-submit) is another option.
@@ -12,7 +12,7 @@ Although we've found `slurm-auto-array` to work well for many users on our syste
 
 ## Installation
 
-`slurm-auto-array` requires [Slurm](https://slurm.schedmd.com/overview.html), [GNU Parallel](https://www.gnu.org/software/parallel/), and Python (3.6 or higher) at runtime. Pandoc is required to install from this repository, and `bats` is required to run `make check`.
+`slurm-auto-array` requires [Slurm](https://slurm.schedmd.com/overview.html), [GNU Parallel](https://www.gnu.org/software/parallel/), and Python (3.6 or higher) at runtime. Pandoc is required to install from this repository (but *not* to install from a [release](https://github.com/BYUHPC/slurm-auto-array/releases)), and `bats` and Slurm are required to run `make check`.
 
 Given that you want to install in `/my/software/slurm-auto-array`:
 
