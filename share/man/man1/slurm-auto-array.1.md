@@ -114,7 +114,9 @@ You'll need to run `parallel --citation; parallel --record-env` in a clean envir
 
 `-o output.out`, `--output output.out`
     File (with optional formatting) to which to write stdout for each array task; only a subset of sbatch's formatting
-    options are supported, namely `%a`, `%A`, `%N`, `%u`, and `%x`; see sbatch(1) (default `slurm-auto-array-%A_%a.out`)
+    options are supported, namely `%a`, `%A`, `%N`, `%u`, and `%x`; see sbatch(1) (default
+    `slurm-auto-array-%A_%a.out`); you can also specify %0 to replace the command being run, %1 to replace its first
+    argument, %2 to replace the second, etc.
 
 `-e output.err`, `--error output.err`
     Analogous to `-o`, but for stderr; defaults to the file specified by `-o`

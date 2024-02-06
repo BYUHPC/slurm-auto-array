@@ -10,11 +10,13 @@ Arguments are all passed as a single argument to be split by shlex, since that's
 This script is not meant to be run manually.
 """
 
-def outfile_name(format, work_unit_id):
+def outfile_name(format, work_unit_id, command):
     if '\\' in format:
         return re.sub("\\", "", format)
     master_job_id = os.environ["SLURM_ARRAY_JOB_ID"]
     job_name = os.environ["SLURM_JOB_NAME"]
+
+    # Fixed replacements
     replacements = {
         "%" : "%",
         "a" : str(work_unit_id),
@@ -23,6 +25,13 @@ def outfile_name(format, work_unit_id):
         "u" : getpass.getuser(),
         "x" : job_name
     }
+
+    # Argument based replacements
+    for i, arg in enumerate(command):
+        replacements[str(i)] = arg
+
+    print("FORMAT: ", format)
+    # Perform the replacements and return the file name
     for pattern, replacement in replacements.items():
         for n in re.findall(f"%(\d+)?{pattern}", format):
             if n and replacement.isdigit():
@@ -48,8 +57,8 @@ def main(args=sys.argv[1:]):
     # "Parse"
     outfile_format, errfile_format, open_mode, work_unit_id, command = parse(args)
     # Redirect stderr and stdout to the appropriate file(s)
-    with open(outfile_name(outfile_format, work_unit_id), open_mode) as out, \
-         open(outfile_name(errfile_format, work_unit_id), open_mode) as err:
+    with open(outfile_name(outfile_format, work_unit_id, command), open_mode) as out, \
+         open(outfile_name(errfile_format, work_unit_id, command), open_mode) as err:
         # First try a command within this directory
         try:
             subprocess.run(["./" + command[0]] + command[1:], stdout=out, stderr=err)

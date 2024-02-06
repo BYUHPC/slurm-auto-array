@@ -25,6 +25,7 @@ setup_file() {
     local SAA_DIR="$(dirname "$(dirname "$(realpath "$BATS_TEST_FILENAME")")")"
     export PATH="$SAA_DIR/bin:$PATH"
     export SAA_TESTING_DIR="$(mktemp -d ~/.cache/saa-test-XXX)"
+    #cd "$SAA_DIR"
 }
 
 teardown_file() {
@@ -107,4 +108,18 @@ teardown_file() {
     # These two are expected to fail--the first needs too many tasks, the second too big a work unit
     { check_submission_size 121 4   1,0,1G,00:09:00   10,0,10G,00:27:00 || test $? -eq 1; }
     { check_submission_size 1   1   11,0,1G,00:01:00  11,0,1G,00:01:00  || test $? -eq 1; }
+}
+
+
+
+@test "outfile name formatting works" {
+    FORMAT='test-%%-%a-%A-%N-%u-%x-%1-%2.out'
+    job_id="$(submit_job "$(seq 4 | awk '{print argument, $1}')" --verbose -n 1 --mem 256m -t 1 --wait -o "$FORMAT" --job-name oftest -- echo argument)"
+    job_host="$(scontrol show job "$job_id" | grep -oP '\sNodeList=\K\S+')"
+    for i in {1..4}; do
+        filename="test-%-$i-$job_id-$job_host-$USER-oftest-argument-$i.out"
+        ls "$filename"
+        test "$(cat "$filename")" = "argument $i"
+    done
+    # TODO: test that when you specify %3 but there are only two arguments on the command line, it just stays as '%3' (and document that's what happens)
 }
