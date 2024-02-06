@@ -25,10 +25,11 @@ setup_file() {
     local SAA_DIR="$(dirname "$(dirname "$(realpath "$BATS_TEST_FILENAME")")")"
     export PATH="$SAA_DIR/bin:$PATH"
     export SAA_TESTING_DIR="$(mktemp -d ~/.cache/saa-test-XXX)"
-    #cd "$SAA_DIR"
+    cd "$SAA_TESTING_DIR"
 }
 
 teardown_file() {
+    cd
     rm -rf "$SAA_TESTING_DIR"
 }
 
@@ -44,9 +45,7 @@ teardown_file() {
 
 @test "basic job submission works" {
     local ARGS="$(echo -e 'A\nB\nC')"
-    submit_job "$ARGS" --wait -U 1,0,1G,1 -l "$SAA_TESTING_DIR/basic-test.log" -o "$SAA_TESTING_DIR/basic-test-%a.out" -- echo arguments supplied:
-    ls "$SAA_TESTING_DIR"
-    cat "$SAA_TESTING_DIR"/*
+    submit_job "$ARGS" --wait -U 1,0,1G,1 -l "basic-test.log" -o "basic-test-%a.out" -- echo arguments supplied:
     test "$(cat "$SAA_TESTING_DIR/basic-test-3.out")" = "arguments supplied: C"
 }
 
