@@ -48,5 +48,6 @@ Documentation and tests are by far the most important improvements needed. Outsi
 - Add parsing of `#SAA` arguments in submission scripts
 - A release tarball and instructions on `make dist`
 - Parsing of `#SBATCH` directives in submission scripts
+- Make the output file name handling more versatile--could use `%1`, `%2`, etc. to represent arguments, for example.
 
 In addition to the usual bugs and feature requests, please open an issue if you find any of the documentation confusing--the original purpose of `slurm-auto-array` was to make it easy for users to submit job arrays, and bad documentation defeats that core purpose.

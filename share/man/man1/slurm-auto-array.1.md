@@ -147,8 +147,7 @@ The format of arguments in the config file is `KEY=value`.
 - `SAA_MAX_ARRAY_TASKS`: the maximum number of array tasks for a job array (default 1000)
 - `SAA_DEFAULT_WORK_UNIT_SIZE`: the default work unit size (default `1,0,2G,1:00:00`)
 - `SAA_DEFAULT_ARRAY_TASK_SIZE`: the default array task size (default `4,1,16G,6:00:00`)
-- `SAA_MAX_WORK_UNIT_SIZE`: the largest possible work unit (default `16,2,64G,1-00:00:00`); **NOT YET IMPLEMENTED**
-- `SAA_MAX_ARRAY_TASK_SIZE`: the largest possible array task (default `256,32,1T,1-00:00:00`); **NOT YET IMPLEMENTED**
+- `SAA_MAX_ARRAY_TASK_SIZE`: the largest possible array task (default `1024,64,16T,30-00:00:00`)
 
 The same keys can also be specified as environment variables, which will supersede the settings in the config file.
 
