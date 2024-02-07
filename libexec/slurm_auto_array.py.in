@@ -161,7 +161,7 @@ def array_task_size_and_count(work_unit_count, work_unit_size, requested_array_t
 
 # PARSING ##############################################################################################################
 
-# Parse a file (if the first element of command is a filename) for #SBATCH flags, and return the amended command
+# Parse a file (if the first element of command is a filename) for #SBATCH/#SAA flags, and return the amended command
 def file_sbatch_flags(command):
     """
     If the name of a file in the working directory shadows a command in PATH, the file will be used, just as with sbatch
@@ -179,8 +179,8 @@ def file_sbatch_flags(command):
                 first_line = False
                 if line and line[0] != "#":
                     return command, flags
-                elif line[0:7] == "#SBATCH":
-                    for flag in shlex.split(line[8:]):
+                elif line[0:8] == "#SBATCH " or line[0:5] == "#SAA ":
+                    for flag in shlex.split(line)[1:]:
                         if flag and flag[0] == "#": break
                         flags.append(flag)
     except UnicodeDecodeError: # not a legitimate text file
@@ -192,7 +192,7 @@ def file_sbatch_flags(command):
 
 # Read in configuration from the environment and/or config file
 def get_config():
-    default_arg_file_dir = os.path.join(os.path.expanduser("~"), ".local", "share", "saa-arg-file-dir")
+    default_arg_file_dir = os.path.join(os.path.expanduser("~"), ".local", "share", "saa-arg-files")
     user_config = os.path.join(os.path.expanduser("~"), ".config", "slurm-auto-array.conf")
     global_config = os.path.join("etc", "slurm-auto-array.conf")
     config_file = os.getenv("SAA_CONFIG_FILE", user_config   if os.path.isfile(user_config)   else
@@ -274,7 +274,7 @@ def parse(default_work_unit_size, default_array_task_size, args=sys.argv[1:]):
                         help=f"Allocation size of each work unit, with respective formats those of -n, -G, -m, and -t ({default_work_unit_size} by default); this argument has lower precedence than the individual arguments it represents") 
     parser.add_argument("-T", "--array-task-size", metavar="CPUs,GPUs,mem,time", type=AllocationSize,
                         default=default_array_task_size,
-                        help=f"Maximum desired allocation size of each array task, with the same format as -U ({default_array_task_size} by default); if this doesn't allow the job to fit within the maximum job array size, it will be exceeded")
+                        help=f"Maximum desired allocation size of each array task, with the same format as -U ({default_array_task_size} by default); can be exceeded if it doesn't allow the job to fit within the maximum job array count")
     parser.add_argument("-l", "--logfile", metavar="output.log", default="slurm-auto-array-%A.log",
                         help="slurm-auto-array log file. Setting to /dev/null will suppress all output, including output and error files (slurm-auto-array-%%A.log by default)")
     parser.add_argument("-o", "--output", metavar="output.out", default="slurm-auto-array-%A_%a.out",

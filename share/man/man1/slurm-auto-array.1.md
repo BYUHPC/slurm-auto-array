@@ -30,9 +30,9 @@ sets of tasks of configurable resource use and duration.
 
 The commands that are run by these work units can be specified in two ways: an arbitrary number of arguments that are
 common to all tasks can optionally be given after '`--`' on the `slurm-auto-array` command line, and multiple lines of
-differing arguments can be givn on stdin. These lines of arguments on stdin are parsed by Python's shlex, so the rules
-for quoting are what you probably expect. If no arguments are given after `--` on the command line, the lines of input
-themselves will be executed.
+differing arguments can be given on stdin. These lines of arguments on stdin are parsed by Python's `shlex`, so the
+rules for quoting are what you probably expect. If no arguments are given after `--` on the command line, the lines of
+input themselves will be executed.
 
 As an example, this command:
 
@@ -57,14 +57,14 @@ Second: a b
 In order to reduce strain on the scheduler and maximize throughput, if your command doesn't need much time or many
 resources, multiple instances of the command may be aggregated into one array task. For instance, if you submit with
 `--time=02:00:00 --ntasks=2 --mem=4G`, each array task may, depending on your configuration, run 4 instances of your
-task (hence **work units**) at a time for 12 hours, for a total of 24 instances per array task. This behavior can be
+command (hence **work units**) at a time for 12 hours, for a total of 24 instances per array task. This behavior can be
 changed by the `--per-task-*` flags.
 
-Some commands are extremely umpredictable in the amount of time and resources they require--it can be hard to predict
+Some commands are extremely unpredictable in the amount of time and resources they require--it can be hard to predict
 whether 5 minutes or 2 hours will be needed for any given argument. Since the arguments that cause unusually high
 resource demands are often clustered together, `slurm-auto-array` stripes work across array tasks rather than
 chunking--if you have 100 units of work that fit into 5 job array tasks, the first task will run the command on
-arguments 1,6,11,16,..., the second on arguments 2,7,12,17,..., et cetera.
+arguments 1,6,11,16,..., the second on arguments 2,7,12,17,..., etc.
 
 You'll need to run `parallel --citation; parallel --record-env` in a clean environment before using `slurm-auto-array`.
 
@@ -105,7 +105,7 @@ You'll need to run `parallel --citation; parallel --record-env` in a clean envir
     this supersedes `-n`, `-G`, `--mem-per-cpu`, and `-t` if specified
 
 `-T CPUs,GPUs,mem,time`, `--array-task-size CPUs,GPUs,mem,time`
-    Maximum allocation size of each array task, with the same format as -U (8,2,16384M,720 by default); `-T` is ignored
+    Desired allocation size of each array task, with the same format as -U (8,2,16384M,720 by default); `-T` is ignored
     if it isn't sufficiently large to allow the job array to submit
 
 `-l output.log`, `--logfile output.log`
@@ -114,9 +114,9 @@ You'll need to run `parallel --citation; parallel --record-env` in a clean envir
 
 `-o output.out`, `--output output.out`
     File (with optional formatting) to which to write stdout for each array task; only a subset of sbatch's formatting
-    options are supported, namely `%a`, `%A`, `%N`, `%u`, and `%x`; see sbatch(1) (default
-    `slurm-auto-array-%A_%a.out`); you can also specify %0 to replace the command being run, %1 to replace its first
-    argument, %2 to replace the second, etc.
+    options are supported, namely `%%`, `%a`, `%A`, `%N`, `%u`, and `%x`; see sbatch(1) (default
+    `slurm-auto-array-%A_%a.out`); you can also specify `%0` to replace the command being run, `%1` to replace its first
+    argument, `%2` to replace the second, etc.
 
 `-e output.err`, `--error output.err`
     Analogous to `-o`, but for stderr; defaults to the file specified by `-o`
