@@ -15,12 +15,6 @@
 # -U and -T properly supersede other arguments
 # Lots more, this is just off the top of my head
 
-submit_job() {
-    local ARGS="$1"
-    shift # subesequent arguments passed to slurm-auto-array
-    echo "$ARGS" | slurm-auto-array --parsable "$@"
-}
-
 setup_file() {
     local SAA_DIR="$(dirname "$(dirname "$(realpath "$BATS_TEST_FILENAME")")")"
     export PATH="$SAA_DIR/bin:$PATH"
@@ -31,6 +25,39 @@ setup_file() {
 teardown_file() {
     cd
     rm -rf "$SAA_TESTING_DIR"
+}
+
+
+
+# Submit a job with slurm-auto-array and print the job's ID
+submit_job() {
+    # $1: the arguments to pour into slurm-auto-array (newline-delimited string)
+    # $2...: arguments to pass to slurm-auto-array
+    local ARGS="$1"
+    shift # subesequent arguments passed to slurm-auto-array
+    echo "$ARGS" | slurm-auto-array --parsable "$@"
+}
+
+
+
+# Extract a value from the output of `scontrol show job`
+scontrol_get() {
+    # $1: the job ID
+    # $2: the value to search for
+    # $3: the regular expression to match
+    local job_id="$1"
+    local value="$2"
+    local pattern="$3"
+
+    # Make sure the output is in the cache
+    declare -gA scontrol_show_cache # it can be declared multiple times to no ill effect
+    if [[ -z "${scontrol_show_cache["$job_id"]}" ]]; then
+        local scontrol_output="$(scontrol show job "$job_id")"
+        scontrol_show_cache["$job_id"]="$scontrol_output"
+    fi
+
+    # Grep for the given value and regex
+    grep -oP "$value=\K$pattern" <<< "${scontrol_show_cache["$job_id"]}"
 }
 
 
@@ -66,17 +93,13 @@ teardown_file() {
         local args="$(seq "$N")"
         job_id="$(submit_job "$args" --hold -U "$U" -- echo)" # can't be local since we want the exit status
         [[ $? -eq 0 ]] || return 1 # return 1 on submissoin failure
-        local scontrol_output="$(scontrol show job "$job_id" 2>&1)"
         scancel "$job_id"
 
         # Actual values
-        scontrol_get() {
-            grep -oP "$1=\K$2" <<< "$scontrol_output"
-        }
-        local tasks="$(scontrol_get ArrayTaskId '[0-9-]+' | awk -F- '{print $NF}')"
-        local cpus="$(scontrol_get NumCPUs '\d+')"
-        local mem="$(scontrol_get mem '\d+[KMGT]')"
-        local timelim="$(scontrol_get TimeLimit '[0-9:]+')"
+        local tasks="$(scontrol_get $job_id ArrayTaskId '[0-9-]+' | awk -F- '{print $NF}')"
+        local cpus="$(scontrol_get $job_id NumCPUs '\d+')"
+        local mem="$(scontrol_get $job_id mem '\d+[KMGT]')"
+        local timelim="$(scontrol_get $job_id TimeLimit '[0-9:]+')"
 
         # See if everything matches expectations
         local problem=""
@@ -121,4 +144,28 @@ teardown_file() {
         test "$(cat "$filename")" = "argument $i"
     done
     # TODO: test that when you specify %3 but there are only two arguments on the command line, it just stays as '%3' (and document that's what happens)
+}
+
+
+
+@test "#SBATCH/#SAA argument parsing works" {
+    # Make sure that both #SBATCH and #SAA arguments are heeded
+    echo "#!/bin/bash
+#SBATCH -t 2 --mem 16M
+#SAA -n 4
+hostname" > command.sh
+    job_id="$(submit_job 1 --hold -- command.sh)"
+    scontrol show job "$job_id"
+    test "$(scontrol_get $job_id NumCPUs '\d+')"       = 4
+    test "$(scontrol_get $job_id mem '\d+[KMGT]')"     = 16M
+    test "$(scontrol_get $job_id TimeLimit '[0-9:]+')" = 00:02:00
+    scancel "$job_id"
+
+    # Check that forbidden #SBATCH arguments are rejected
+    bad_infile="$(mktemp)"
+    echo '#!/bin/bash
+#SBATCH --array 1-2
+echo "$@' > "$bad_infile"
+    { PATH="$(dirname "$bad_infile"):$PATH" submit_job 1 -- "$(basename "$bad_infile")" || test $? -eq 1; }
+    rm "$bad_infile"
 }

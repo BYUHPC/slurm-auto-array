@@ -66,6 +66,10 @@ resource demands are often clustered together, `slurm-auto-array` stripes work a
 chunking--if you have 100 units of work that fit into 5 job array tasks, the first task will run the command on
 arguments 1,6,11,16,..., the second on arguments 2,7,12,17,..., etc.
 
+In addition to command line arguments, `#SBATCH` flags will be parsed if an `sbatch` script is supplied as the command.
+`#SAA` flags will be treated identically by `slurm-auto-array`, allowing you to add `slurm-auto-array`-specific flags to
+job scripts that will also be used with `sbatch`.
+
 You'll need to run `parallel --citation; parallel --record-env` in a clean environment before using `slurm-auto-array`.
 
 

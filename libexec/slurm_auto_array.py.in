@@ -24,7 +24,7 @@ SAA_ARG_FILE_DIR; it will be automatically deleted on job completion.
 
 
 
-import re, os, sys, subprocess, argparse, math, shlex, logging, random, string
+import re, os, sys, shutil, subprocess, argparse, math, shlex, logging, random, string
 
 
 
@@ -32,17 +32,18 @@ import re, os, sys, subprocess, argparse, math, shlex, logging, random, string
 
 # USAGE ################################################################################################################
 
-usage = """slurm-auto-array automates the submission of sbatch job arrays. It takes a newline-delimited (by default) set
-           of commands on stdin and submits a job array that runs an optional user-specified command on each argument.
-           For example, one could run 'myprog.sh' on every file ending with '.dat' in the current directory using
-           'ls *.dat | slurm-auto-array -- myprog.sh'. Multiple instances of the command may run per array task (e.g. 24
-           instances of your command could be run in 3 array tasks with 8 instances each); you can control the size of
-           the array tasks with the '--per-task-*' flags. If you wish to specify part of the command from the command
-           line, for example to run a single command with fixed arguments on several files, add
-           '-- command [arg1 [arg2 ...]]' to the end of the slurm-auto-array invocation.
-           
-           In addition to the listed arguments, any sbatch arguments that won't interfere with slurm-auto-array's
-           operation can be supplied; see the man page for a list."""
+description = """slurm-auto-array automates the submission of sbatch job arrays. It takes a newline-delimited (by
+                 default) set of commands on stdin and submits a job array that runs an optional user-specified command
+                 on each argument. For example, one could run 'myprog.sh' on every file ending with '.dat' in the
+                 current directory using 'ls *.dat | slurm-auto-array -- myprog.sh'. Multiple instances of the command
+                 may run per array task (e.g. 24 instances of your command could be run in 3 array tasks with 8
+                 instances each); you can control the size of the array tasks with the '--per-task-*' flags. If you wish
+                 to specify part of the command from the command line, for example to run a single command with fixed
+                 arguments on several files, add '-- command [arg1 [arg2 ...]]' to the end of the slurm-auto-array
+                 invocation; note that the '--' is *not* optional.
+
+                 In addition to the listed arguments, any sbatch arguments that won't interfere with slurm-auto-array's
+                 operation can be supplied; see the man page for a list."""
 
 epilog = "See the man page or https://rc.byu.edu/wiki/?id=slurm-auto-array for more details and examples."
 
@@ -161,32 +162,27 @@ def array_task_size_and_count(work_unit_count, work_unit_size, requested_array_t
 
 # PARSING ##############################################################################################################
 
-# Parse a file (if the first element of command is a filename) for #SBATCH/#SAA flags, and return the amended command
-def file_sbatch_flags(command):
+# Parse a file for #SBATCH/#SAA flags, and return the amended command
+def file_sbatch_flags(filename):
     """
     If the name of a file in the working directory shadows a command in PATH, the file will be used, just as with sbatch
     """
-    filename = shlex.split(command)[0]
-    if not filename or not os.path.isfile(filename):
-        return command, []
+    if not filename or (not os.path.isfile(filename) and not shutil.which(filename)):
+        return []
     flags = []
     try:
-        with open(filename, "r") as f:
-            first_line = True
+        with open(filename if os.path.isfile(filename) else shutil.which(filename), "r") as f:
             for line in (line.strip() for line in f):
-                if first_line and line[:2] == "#!":
-                    command = line[2:] + ' ' + command
-                first_line = False
                 if line and line[0] != "#":
-                    return command, flags
-                elif line[0:8] == "#SBATCH " or line[0:5] == "#SAA ":
+                    return flags
+                elif line and (line[0:8] == "#SBATCH " or line[0:5] == "#SAA "):
                     for flag in shlex.split(line)[1:]:
                         if flag and flag[0] == "#": break
                         flags.append(flag)
     except UnicodeDecodeError: # not a legitimate text file
-        logging.info(f"file '{filename}' is not a text file and will not be parsed for '#SBATCH' flags")
-        return command, []
-    return command, flags
+        logging.info(f"file '{filename}' cannot be read as text and will not be parsed for '#SBATCH' flags")
+        flags = []
+    return flags
 
 
 
@@ -228,7 +224,7 @@ def get_config():
 
 
 
-# Parse arguments, including filtering out sbatch arguments that would interfere with our splitting of work
+# Parse arguments, including filtering out forbidden sbatch arguments and parsing the command for #SBATCH/#SAA flags
 # Single-letter arguments that sbatch doesn't use: E, f, g, I, j, K, l, P, r, R, T, u, U, X, y, Y, z, Z
 # Already in use by us:                                              ^           ^     ^
 def parse(default_work_unit_size, default_array_task_size, args=sys.argv[1:]):
@@ -240,6 +236,10 @@ def parse(default_work_unit_size, default_array_task_size, args=sys.argv[1:]):
         args = args[:split]
     except ValueError:
         pass
+
+    # Add #SBATCH/#SAA files from the input file, if there is one
+    args = file_sbatch_flags(command[0] if command else '') + args
+
     # Make sure we don't have any no-no arguments
     for arg in ["-a", "--array",
                 "--cpus-per-gpu",
@@ -253,8 +253,10 @@ def parse(default_work_unit_size, default_array_task_size, args=sys.argv[1:]):
                 "--wrap"]:
         if any(filter(re.compile(f"^{arg}(=.*)?$").match, args)):
             raise ValueError(f"sbatch argument '{arg}' disallowed")
+
     # Parse main arguments
-    parser = argparse.ArgumentParser(description=usage, epilog=epilog)
+    parser = argparse.ArgumentParser(description=description, epilog=epilog,
+                                     usage='%(prog)s [options] [-- command [args ...]]')
     parser.add_argument("-V", "--version", action="version", version=version)
     parser.add_argument("--delimiter", metavar="D", default="\\n",
                         help="string or regular expression separating work unit command lines; newline by default")
@@ -285,6 +287,7 @@ def parse(default_work_unit_size, default_array_task_size, args=sys.argv[1:]):
                         help="Open log, output, and error files in the specified mode; see sbatch(1).")
     parser.add_argument("-v", "--verbose", action="store_true", help="print verbose output")
     parser.add_argument("--dry-run", action="store_true", help="don't submit, but print what would have been done")
+
     # Return a pair: (known_arguments, other_arguments); other_arguments should be slurm args
     args, slurm_args = parser.parse_known_args(args)
     if args.error is None:
