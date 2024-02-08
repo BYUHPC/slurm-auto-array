@@ -6,7 +6,7 @@
 # The actual work units are run by work_unit.py in this same directory
 
 # "Parse"
-infile="$1-$SLURM_ARRAY_TASK_ID.in"
+infile="$1/$SLURM_ARRAY_TASK_ID.in"
 shift
 delimiter="$1"
 shift

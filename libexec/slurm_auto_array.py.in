@@ -24,7 +24,7 @@ SAA_ARG_FILE_DIR; it will be automatically deleted on job completion.
 
 
 
-import re, os, sys, shutil, subprocess, argparse, math, shlex, logging, random, string
+import re, os, sys, shutil, tempfile, subprocess, argparse, math, shlex, logging, time
 
 
 
@@ -170,18 +170,14 @@ def file_sbatch_flags(filename):
     if not filename or (not os.path.isfile(filename) and not shutil.which(filename)):
         return []
     flags = []
-    try:
-        with open(filename if os.path.isfile(filename) else shutil.which(filename), "r") as f:
-            for line in (line.strip() for line in f):
-                if line and line[0] != "#":
-                    return flags
-                elif line and (line[0:8] == "#SBATCH " or line[0:5] == "#SAA "):
-                    for flag in shlex.split(line)[1:]:
-                        if flag and flag[0] == "#": break
-                        flags.append(flag)
-    except UnicodeDecodeError: # not a legitimate text file
-        logging.info(f"file '{filename}' cannot be read as text and will not be parsed for '#SBATCH' flags")
-        flags = []
+    with open(filename if os.path.isfile(filename) else shutil.which(filename), "r") as f:
+        for line in (line.strip() for line in f):
+            if line and line[0] != "#":
+                return flags
+            elif line and (line[0:8] == "#SBATCH " or line[0:5] == "#SAA "):
+                for flag in shlex.split(line)[1:]:
+                    if flag and flag[0] == "#": break
+                    flags.append(flag)
     return flags
 
 
@@ -238,7 +234,12 @@ def parse(default_work_unit_size, default_array_task_size, args=sys.argv[1:]):
         pass
 
     # Add #SBATCH/#SAA files from the input file, if there is one
-    args = file_sbatch_flags(command[0] if command else '') + args
+    parsed_sbatch_file = True
+    try:
+        args = file_sbatch_flags(command[0] if command else '') + args
+    except UnicodeDecodeError:
+        parsed_sbatch_file = False
+
 
     # Make sure we don't have any no-no arguments
     for arg in ["-a", "--array",
@@ -288,11 +289,23 @@ def parse(default_work_unit_size, default_array_task_size, args=sys.argv[1:]):
     parser.add_argument("-v", "--verbose", action="store_true", help="print verbose output")
     parser.add_argument("--dry-run", action="store_true", help="don't submit, but print what would have been done")
 
-    # Return a pair: (known_arguments, other_arguments); other_arguments should be slurm args
+    # Parse
     args, slurm_args = parser.parse_known_args(args)
     if args.error is None:
         args.error = args.output
-    return args, slurm_args, command
+
+    # Setting up the most basic possible logger takes 6 lines for some reason
+    logging_handler = logging.StreamHandler()
+    logging_handler.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
+    logger = logging.getLogger("slurm_auto_array_logger")
+    logger.addHandler(logging_handler)
+    logger.setLevel(logging.INFO if args.verbose else logging.WARN)
+    logger.propagate = False
+
+    # Return all the information we've found
+    if not parsed_sbatch_file:
+        logger.info(f"File '{command[0]}' cannot be read as text and will not be parsed for '#SBATCH' flags")
+    return args, slurm_args, command, logger
 
 ########################################################################################################################
 
@@ -305,13 +318,14 @@ def parse(default_work_unit_size, default_array_task_size, args=sys.argv[1:]):
 def main(cmd_line_args=sys.argv[1:]):
     # Parse
     arg_file_dir, max_array_task_count, default_work_unit_size, default_array_task_size, max_array_task_size = get_config()
-    args, sbatch_args, command = parse(default_work_unit_size, default_array_task_size, cmd_line_args)
-    logging.basicConfig(format="%(levelname)s: %(message)s", level=logging.INFO if args.verbose else logging.WARNING)
+    args, sbatch_args, command, logger = parse(default_work_unit_size, default_array_task_size, cmd_line_args)
+
+    # Exit if GNU Parallel hasn't been set up
     if not os.path.exists(os.path.expanduser("~/.parallel/will-cite")):
-        logging.warning("You must run `parallel --citation` before using slurm-auto-array--exiting")
+        logger.warning("You must run `parallel --citation` before using slurm-auto-array--exiting")
         sys.exit(1)
     if not os.path.exists(os.path.expanduser("~/.parallel/ignored_vars")):
-        logging.warning("You must run `parallel --record-env` in a clean environment before using slurm-auto-array--exiting")
+        logger.warning("You must run `parallel --record-env` in a clean environment before using slurm-auto-array--exiting")
         sys.exit(1)
 
     # Get arguments from stdin to figure out how many work units there are
@@ -353,39 +367,40 @@ def main(cmd_line_args=sys.argv[1:]):
                                                                       max_array_task_size)
 
     # Let the user know what's been parsed if verbose
-    logging.info( "Finished parsing arguments; final values:")
+    logger.info( "Finished parsing arguments; final values:")
     if command:
-        logging.info( "--- command to be run ---")
-        logging.info(f"    {' '.join(command)}")
-    logging.info(f"--- configuration ---")
-    logging.info(f"    default work unit size: {default_work_unit_size}")
-    logging.info(f"    default array task size: {default_array_task_size}")
-    logging.info(f"    max array task count: {max_array_task_count}")
-    logging.info(f"    max array task size: {max_array_task_size}")
-    logging.info( "--- per work unit ---")
-    logging.info(f"    CPUs:        {work_unit_size.cpus}")
-    logging.info(f"    GPUs:        {work_unit_size.gpus}")
-    logging.info(f"    memory (MB): {work_unit_size.mem}")
-    logging.info(f"    time (mins): {work_unit_size.time}")
-    logging.info( "--- per job array task ---")
-    logging.info(f"    CPUs:        {array_task_size.cpus}")
-    logging.info(f"    GPUs:        {array_task_size.gpus}")
-    logging.info(f"    memory (MB): {array_task_size.mem}")
-    logging.info(f"    time (mins): {array_task_size.time}")
-    logging.info(f"--- {work_unit_count} total work units ---")
-    logging.info(f"--- {math.ceil(work_unit_count/array_task_count)} work units per array task ---")
-    logging.info(f"--- {array_task_count} job array tasks ---")
+        logger.info( "--- command to be run ---")
+        logger.info(f"    {' '.join(command)}")
+    logger.info(f"--- configuration ---")
+    logger.info(f"    default work unit size: {default_work_unit_size}")
+    logger.info(f"    default array task size: {default_array_task_size}")
+    logger.info(f"    max array task count: {max_array_task_count}")
+    logger.info(f"    max array task size: {max_array_task_size}")
+    logger.info( "--- per work unit ---")
+    logger.info(f"    CPUs:        {work_unit_size.cpus}")
+    logger.info(f"    GPUs:        {work_unit_size.gpus}")
+    logger.info(f"    memory (MB): {work_unit_size.mem}")
+    logger.info(f"    time (mins): {work_unit_size.time}")
+    logger.info( "--- per job array task ---")
+    logger.info(f"    CPUs:        {array_task_size.cpus}")
+    logger.info(f"    GPUs:        {array_task_size.gpus}")
+    logger.info(f"    memory (MB): {array_task_size.mem}")
+    logger.info(f"    time (mins): {array_task_size.time}")
+    logger.info(f"--- {work_unit_count} total work units ---")
+    logger.info(f"--- {math.ceil(work_unit_count/array_task_count)} work units per array task ---")
+    logger.info(f"--- {array_task_count} job array tasks ---")
 
     # Error out if the resource request was too big
     if (array_task_count > max_array_task_count or args.work_unit_size.cpus > max_array_task_size.cpus
                                                 or args.work_unit_size.gpus > max_array_task_size.gpus
                                                 or args.work_unit_size.mem  > max_array_task_size.mem
                                                 or args.work_unit_size.time > max_array_task_size.time):
-        logging.error(f"Array task is too large for submission; {max_array_task_count} tasks of size {max_array_task_size} aren't sufficient to fit {work_unit_count} work units of size {work_unit_size}")
+        logger.error(f"Array task is too large for submission; {max_array_task_count} tasks of size " +
+                     f"{max_array_task_size} can't fit {work_unit_count} work units of size {work_unit_size}")
         sys.exit(1)
 
     # Prepare job submission command
-    arg_file_prefix = os.path.join(arg_file_dir, "".join(random.choice(string.ascii_lowercase) for i in range(32)))
+    arg_file_subdir = tempfile.mkdtemp(dir=arg_file_dir) if not args.dry_run else 'arg-file-subdir'
     batch_script = os.path.join(os.path.dirname(os.path.realpath(__file__)), "task.sh")
     work_unit_script = os.path.join(os.path.dirname(os.path.realpath(__file__)), "work_unit.py")
     ntasks = math.ceil(array_task_size.cpus/work_unit_size.cpus)
@@ -398,9 +413,24 @@ def main(cmd_line_args=sys.argv[1:]):
                     f"--array=1-{array_task_count}"]
     if work_unit_size.gpus: sbatch_args.append(f"--gpus-per-task={work_unit_size.gpus}")
     submit_command = ["sbatch"] + sbatch_args \
-                   + [batch_script, arg_file_prefix, delimiter_literal, work_unit_script, args.output, args.error,
+                   + [batch_script, arg_file_subdir, delimiter_literal, work_unit_script, args.output, args.error,
                       "a" if args.open_mode == "append" else "w"] \
                    + command
+
+    # Clean up any old argument file directories that don't have an associated job
+    if not args.dry_run:
+        current_job_ids = subprocess.check_output(["squeue", "-o", "%F"]).decode("utf-8").strip().split("\n")
+        for subdir in next(os.walk(arg_file_dir))[1]:
+            job_dir = os.path.join(arg_file_dir, subdir)
+            # Don't delete anything recent to (probably) avoid a race condition
+            if time.time() - os.path.getmtime(job_dir) < 30 * 24 * 60**2: continue # only delete if over a month old
+            # Read the job ID from the file
+            job_id_file = os.path.join(job_dir, "jobid.txt")
+            other_job_id = open(job_id_file).read() if os.path.isfile(job_id_file) else ""
+            # Delete the directory if the job ID file didn't exist or if the other job ID isn't shown by squeue
+            if not other_job_id in current_job_ids:
+                logger.info(f"Removing stale argument file directory {job_dir} (job {other_job_id})")
+                shutil.rmtree(job_dir)
 
     # Set a couple of environment variables
     os.environ["OMP_NUM_THREADS"] = str(work_unit_size.cpus)
@@ -413,19 +443,26 @@ def main(cmd_line_args=sys.argv[1:]):
     # Write arguments to files for each job array task
     os.makedirs(arg_file_dir, exist_ok=True)
     for i in range(array_task_count):
-        with open(f"{arg_file_prefix}-{i+1}.in", "w") as f:
+        with open(os.path.join(arg_file_subdir, f"{i+1}.in"), "w") as f:
             this_work_unit_args = work_unit_args[i::array_task_count]
             this_work_unit_indices = range(work_unit_count)[i::array_task_count]
-            f.write(delimiter_literal.join(f"{i+1} {arg}" for arg, i in zip(this_work_unit_args, this_work_unit_indices)))
+            f.write(delimiter_literal.join(f"{i+1} {arg}" for arg, i in zip(this_work_unit_args,
+                                                                            this_work_unit_indices)))
 
     # Submit the job
     try:
-        logging.info("Submission command: " + " ".join(submit_command))
-        subprocess.run(submit_command, stderr=subprocess.STDOUT)
+        logger.info("Submission command: " + " ".join(submit_command))
+        job_submit_output = subprocess.check_output(submit_command).decode("utf-8").strip()
+        #print(job_submit_output, file=sys.stderr)
+        job_id = shlex.split(job_submit_output)[-1]
+        with open(os.path.join(arg_file_subdir, "jobid.txt"), "w") as f:
+            f.write(job_id)
+        print(job_submit_output)
     except subprocess.CalledProcessError as e:
-        logging.error("sbatch failed to properly submit job")
-        logging.error(e.output.decode().strip())
+        logger.error("sbatch failed to properly submit job")
+        logger.error(e.output.decode().strip())
         sys.exit(e.returncode)
+
 
 
 

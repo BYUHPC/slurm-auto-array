@@ -30,7 +30,6 @@ def outfile_name(format, work_unit_id, command):
     for i, arg in enumerate(command):
         replacements[str(i)] = arg
 
-    print("FORMAT: ", format)
     # Perform the replacements and return the file name
     for pattern, replacement in replacements.items():
         for n in re.findall(f"%(\d+)?{pattern}", format):
