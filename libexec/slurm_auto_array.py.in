@@ -478,8 +478,3 @@ def main(cmd_line_args=sys.argv[1:]):
 
 if __name__ == "__main__":
     main()
-
-
-
-# TODO
-# - Put a job ID at the top of argument files so slurm-auto-array can automatically clean up any that didn't get cleaned by the jobs.
