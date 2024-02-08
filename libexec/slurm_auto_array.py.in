@@ -211,12 +211,12 @@ def get_config():
             logging.warning(f"{name} set to invalid value; using default of {default}")
             return f(default)
 
-    return (get_value(transform, name, default)
-            for name, default, transform in (("SAA_ARG_FILE_DIR",            default_arg_file_dir,      mkdir_if_possible),
-                                             ("SAA_MAX_ARRAY_TASKS",         "1000",                    positive_int),
-                                             ("SAA_DEFAULT_WORK_UNIT_SIZE",  "1,0,2G,1:00:00",          AllocationSize),
-                                             ("SAA_DEFAULT_ARRAY_TASK_SIZE", "4,1,16G,6:00:00",         AllocationSize),
-                                             ("SAA_MAX_ARRAY_TASK_SIZE",     "1024,64,16T,30-00:00:00", AllocationSize)))
+    return (get_value(tf, name, default)
+            for name, default, tf in (("SAA_ARG_FILE_DIR",            default_arg_file_dir,      mkdir_if_possible),
+                                      ("SAA_MAX_ARRAY_TASKS",         "1000",                    positive_int),
+                                      ("SAA_DEFAULT_WORK_UNIT_SIZE",  "1,0,2G,1:00:00",          AllocationSize),
+                                      ("SAA_DEFAULT_ARRAY_TASK_SIZE", "4,1,16G,6:00:00",         AllocationSize),
+                                      ("SAA_MAX_ARRAY_TASK_SIZE",     "1024,64,16T,30-00:00:00", AllocationSize)))
 
 
 
@@ -271,17 +271,27 @@ def parse(default_work_unit_size, default_array_task_size, args=sys.argv[1:]):
                         help=f"memory required by each CPU ({default_work_unit_size.mem}M by default)")
     memgrp.add_argument("--mem-per-gpu", metavar="N{K|M|G}", help="memory required by each GPU")
     parser.add_argument("-t",  "--time", metavar="D-HH:MM:SS",
-                        help=f"time required by each work unit ({default_work_unit_size.time} mins by default); see sbatch(1) for formatting")
+                        help=f"time required by each work unit ({default_work_unit_size.time} mins by default); see " +
+                              "sbatch(1) for formatting")
     parser.add_argument("-U", "--work-unit-size", metavar="CPUs,GPUs,mem,time", type=AllocationSize,
                         default=default_work_unit_size,
-                        help=f"Allocation size of each work unit, with respective formats those of -n, -G, -m, and -t ({default_work_unit_size} by default); this argument has lower precedence than the individual arguments it represents") 
+                        help=f"Allocation size of each work unit, with respective formats those of -n, -G, -m, and -t" +
+                             f" ({default_work_unit_size} by default); this argument has lower precedence than the " +
+                             "individual arguments it represents") 
     parser.add_argument("-T", "--array-task-size", metavar="CPUs,GPUs,mem,time", type=AllocationSize,
                         default=default_array_task_size,
-                        help=f"Maximum desired allocation size of each array task, with the same format as -U ({default_array_task_size} by default); can be exceeded if it doesn't allow the job to fit within the maximum job array count")
+                        help=f"Maximum desired allocation size of each array task, with the same format as -U " +
+                             f"({default_array_task_size} by default); can be exceeded if it doesn't allow the job to" +
+                             " fit within the maximum job array count")
     parser.add_argument("-l", "--logfile", metavar="output.log", default="slurm-auto-array-%A.log",
-                        help="slurm-auto-array log file. Setting to /dev/null will suppress all output, including output and error files (slurm-auto-array-%%A.log by default)")
+                        help="slurm-auto-array log file. Setting to /dev/null will suppress all output, including " +
+                             "output and error files (slurm-auto-array-%%A.log by default)")
     parser.add_argument("-o", "--output", metavar="output.out", default="slurm-auto-array-%A_%a.out",
-                        help=r"File (with optional formatting) to which to write stdout for each array task; only a subset of sbatch's formatting options are supported, namely %%a, %%A, %%N, %%u, and %%x; see sbatch(1) (slurm-auto-array-%%A_%%a.out by default); you can also specify %%0 to replace the command being run, %%1 to replace its first argument, %%2 to replace the second, etc.")
+                        help="File (with optional formatting) to which to write stdout for each array task; only a " +
+                             r"subset of sbatch's formatting options are supported, namely %%a, %%A, %%N, %%u, and " +
+                             r"%%x; see sbatch(1) (slurm-auto-array-%%A_%%a.out by default); you can also specify %%0" +
+                             r" to replace the command being run, %%1 to replace its first argument, %%2 to replace " +
+                             "the second, etc.")
     parser.add_argument("-e", "--error", metavar="output.err", default=None,
                         help="Analogous to output, but for stderr (stderr goes to output file by default)")
     parser.add_argument("--open-mode", metavar="{append|truncate}", default="truncate",
@@ -317,15 +327,15 @@ def parse(default_work_unit_size, default_array_task_size, args=sys.argv[1:]):
 
 def main(cmd_line_args=sys.argv[1:]):
     # Parse
-    arg_file_dir, max_array_task_count, default_work_unit_size, default_array_task_size, max_array_task_size = get_config()
+    arg_file_dir, max_array_tasks, default_work_unit_size, default_array_task_size, max_array_task_size = get_config()
     args, sbatch_args, command, logger = parse(default_work_unit_size, default_array_task_size, cmd_line_args)
 
     # Exit if GNU Parallel hasn't been set up
     if not os.path.exists(os.path.expanduser("~/.parallel/will-cite")):
-        logger.warning("You must run `parallel --citation` before using slurm-auto-array--exiting")
+        logger.error(f"You must run `parallel --citation` before using {sys.argv[0]}; exiting")
         sys.exit(1)
     if not os.path.exists(os.path.expanduser("~/.parallel/ignored_vars")):
-        logger.warning("You must run `parallel --record-env` in a clean environment before using slurm-auto-array--exiting")
+        logger.error(f"You must run `parallel --record-env` in a clean environment before using {sys.argv[0]}; exiting")
         sys.exit(1)
 
     # Get arguments from stdin to figure out how many work units there are
@@ -355,14 +365,14 @@ def main(cmd_line_args=sys.argv[1:]):
     array_task_size, array_task_count = array_task_size_and_count(work_unit_count, args.work_unit_size,
                                                                   requested_array_task_size)
     # Increase width if size isn't yet sufficient
-    if array_task_count > max_array_task_count:
+    if array_task_count > max_array_tasks:
         requested_array_task_size.cpus = max_array_task_size.cpus
         requested_array_task_size.gpus = max_array_task_size.gpus
         requested_array_task_size.cpus = max_array_task_size.mem
         array_task_size, array_task_count = array_task_size_and_count(work_unit_count, args.work_unit_size,
                                                                       requested_array_task_size)
     # Increase time if size still isn't sufficient
-    if array_task_count > max_array_task_count:
+    if array_task_count > max_array_tasks:
         array_task_size, array_task_count = array_task_size_and_count(work_unit_count, args.work_unit_size,
                                                                       max_array_task_size)
 
@@ -374,7 +384,7 @@ def main(cmd_line_args=sys.argv[1:]):
     logger.info(f"--- configuration ---")
     logger.info(f"    default work unit size: {default_work_unit_size}")
     logger.info(f"    default array task size: {default_array_task_size}")
-    logger.info(f"    max array task count: {max_array_task_count}")
+    logger.info(f"    max array task count: {max_array_tasks}")
     logger.info(f"    max array task size: {max_array_task_size}")
     logger.info( "--- per work unit ---")
     logger.info(f"    CPUs:        {work_unit_size.cpus}")
@@ -391,11 +401,11 @@ def main(cmd_line_args=sys.argv[1:]):
     logger.info(f"--- {array_task_count} job array tasks ---")
 
     # Error out if the resource request was too big
-    if (array_task_count > max_array_task_count or args.work_unit_size.cpus > max_array_task_size.cpus
+    if (array_task_count > max_array_tasks or args.work_unit_size.cpus > max_array_task_size.cpus
                                                 or args.work_unit_size.gpus > max_array_task_size.gpus
                                                 or args.work_unit_size.mem  > max_array_task_size.mem
                                                 or args.work_unit_size.time > max_array_task_size.time):
-        logger.error(f"Array task is too large for submission; {max_array_task_count} tasks of size " +
+        logger.error(f"Array task is too large for submission; {max_array_tasks} tasks of size " +
                      f"{max_array_task_size} can't fit {work_unit_count} work units of size {work_unit_size}")
         sys.exit(1)
 
