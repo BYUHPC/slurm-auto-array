@@ -78,7 +78,7 @@ scontrol_get() {
 
 
 
-@test "only the minimum necessary resources are used given the work unit size and count" {
+@test "only the minimum necessary resources are used given the work unit size and count, and config works correctly" {
     check_submission_size() {
         # Parse
         local N="$1"                                  # number of work units
@@ -91,7 +91,9 @@ scontrol_get() {
 
         # Submit job as requested, then immediately cancel since it isn't to be run
         local args="$(seq "$N")"
-        job_id="$(submit_job "$args" --hold -U "$U" -- echo)" # can't be local since we want the exit status
+        work_unit_size=()
+        [[ -z "$U" ]] || work_unit_size+=(-U "$U")
+        job_id="$(submit_job "$args" --hold "${work_unit_size[@]}" -- echo)" # can't be local since we want the exit status
         [[ $? -eq 0 ]] || return 1 # return 1 on submissoin failure
         scancel "$job_id"
 
@@ -117,19 +119,30 @@ scontrol_get() {
         fi
     }
 
-    # SAA environment variables
-    export SAA_MAX_ARRAY_TASKS=4
-    export SAA_DEFAULT_ARRAY_TASK_SIZE=4,1,4G,00:05:00
+    # Unset relevant environment variables
+    unset SAA_MAX_ARRAY_TASKS SAA_DEFAULT_WORK_UNIT_SIZE SAA_DEFAULT_ARRAY_TASK_SIZE SAA_MAX_ARRAY_TASK_SIZE
+
+    # Create a config file
+    export SAA_CONFIG_FILE="$(mktemp)" # node-local should be okay
+    echo 'SAA_MAX_ARRAY_TASKS=4
+SAA_DEFAULT_WORK_UNIT_SIZE=1,0,1M,00:01:00
+SAA_DEFAULT_ARRAY_TASK_SIZE=1,1,4G,00:10:00' > "$SAA_CONFIG_FILE"
+
+    # Set environment variables (higher precedence than config)
     export SAA_MAX_ARRAY_TASK_SIZE=10,1,12G,00:30:00
+    export SAA_DEFAULT_ARRAY_TASK_SIZE=4,1,4G,00:05:00
 
     # Tests
-    check_submission_size 1   1   1,0,1M,00:01:00   1,0,1M,00:01:00
+    check_submission_size 1   1   ''                1,0,1M,00:01:00   # use default work unit size
     check_submission_size 10  1   1,0,10M,00:01:00  2,0,20M,00:05:00
     check_submission_size 10  2   1,0,4G,00:01:00   1,0,4G,00:05:00
     check_submission_size 120 4   1,0,1G,00:09:00   10,0,10G,00:27:00
     # These two are expected to fail--the first needs too many tasks, the second too big a work unit
     { check_submission_size 121 4   1,0,1G,00:09:00   10,0,10G,00:27:00 || test $? -eq 1; }
     { check_submission_size 1   1   11,0,1G,00:01:00  11,0,1G,00:01:00  || test $? -eq 1; }
+
+    # Clean up
+    rm "$SAA_CONFIG_FILE"
 }
 
 
@@ -168,4 +181,24 @@ hostname" > command.sh
 echo "$@' > "$bad_infile"
     { PATH="$(dirname "$bad_infile"):$PATH" submit_job 1 -- "$(basename "$bad_infile")" || test $? -eq 1; }
     rm "$bad_infile"
+}
+
+
+
+@test "configuration file and environment variables behave correctly" {
+    # Unset relevant environment variables
+    unset SAA_MAX_ARRAY_TASKS SAA_DEFAULT_WORK_UNIT_SIZE SAA_DEFAULT_ARRAY_TASK_SIZE SAA_MAX_ARRAY_TASK_SIZE
+
+    # Create a config file
+    SAA_CONFIG_FILE="$(mktemp)" # node-local should be okay
+    echo 'SAA_MAX_ARRAY_TASKS=5
+SAA_DEFAULT_WORK_UNIT_SIZE=1,0,1G,00:01:00
+SAA_DEFAULT_ARRAY_TASK_SIZE=4,1,8G,00:10:00' > "$SAA_CONFIG_FILE"
+
+    # Set environment variables
+    export SAA_MAX_ARRAY_TASK_SIZE='10,1,5G,00:30:00'
+    export SAA_DEFAULT_ARRAY_TASK_SIZE='2,1,4G,00:05:00'
+
+    # Clean up
+    rm "$SAA_CONFIG_FILE"
 }

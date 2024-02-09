@@ -151,7 +151,7 @@ The format of arguments in the config file is `KEY=value`.
 
 - `SAA_ARG_FILE_DIR`: a directory for storage of ephemeral argument files (default `$HOME/.local/share/saa-arg-files`)
 - `SAA_MAX_ARRAY_TASKS`: the maximum number of array tasks for a job array (default 1000)
-- `SAA_DEFAULT_WORK_UNIT_SIZE`: the default work unit size (default `1,0,2G,1:00:00`)
+- `SAA_DEFAULT_WORK_UNIT_SIZE`: the default work unit size (default `1,0,1G,1:00:00`)
 - `SAA_DEFAULT_ARRAY_TASK_SIZE`: the default array task size (default `4,1,16G,6:00:00`)
 - `SAA_MAX_ARRAY_TASK_SIZE`: the largest possible array task (default `1024,64,16T,30-00:00:00`)
 
