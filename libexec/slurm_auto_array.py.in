@@ -386,6 +386,7 @@ def build_array_task_dir(arg_files, work_unit_size, array_task_size, max_array_t
                     for arg in file_args:
                         outfile.write(arg + exterior_delimiter.encode())
                         arg_positions[i].append(outfile.tell())
+                    del arg_positions[i][-1] # the last one is extra
 
     # Determine size of array tasks
     requested_array_task_size = AllocationSize(min(array_task_size.cpus, max_array_task_size.cpus),
@@ -544,7 +545,6 @@ def main(cmd_line_args=sys.argv[1:]):
         logger.error("sbatch failed to properly submit job")
         logger.error(e.output.decode().strip())
         sys.exit(e.returncode)
-
 
 
 

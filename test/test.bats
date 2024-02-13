@@ -13,6 +13,7 @@
 # Changing deliminters works
 # -- COMMAND works in various configurations--none, just the command, the command with arguments, etc.
 # -U and -T properly supersede other arguments
+# Delimiters
 # Lots more, this is just off the top of my head
 
 setup_file() {
@@ -150,14 +151,16 @@ SAA_DEFAULT_ARRAY_TASK_SIZE=1,1,4G,00:10:00' > "$SAA_CONFIG_FILE"
 
 
 @test "outfile name formatting works" {
-    FORMAT='test-%%-%a-%A-%N-%u-%x-%1-%2.out'
+    FORMAT='testof-%%-%a-%A-%N-%u-%x-%1-%2.out'
     job_id="$(submit_job "$(seq 4 | awk '{print argument, $1}')" --verbose -n 1 --mem 256m -t 1 --wait -o "$FORMAT" --job-name oftest -- echo argument)"
     job_host="$(scontrol show job "$job_id" | grep -oP '\sNodeList=\K\S+')"
     ls
     for i in {1..4}; do
-        filename="test-%-$((i-1))-$job_id-$job_host-$USER-oftest-argument-$i.out"
+        filename="testof-%-$((i-1))-$job_id-$job_host-$USER-oftest-argument-$i.out"
         test "$(cat "$filename")" = "argument $i"
     done
+    ls testof-%-*-$job_id-* | wc -l
+    test "$(ls testof-%-*-$job_id-* | wc -l)" = 4
     # TODO: test that when you specify %3 but there are only two arguments on the command line, it just stays as '%3' (and document that's what happens)
 }
 
@@ -190,13 +193,19 @@ echo "$@' > "$bad_infile"
 @test "--arg-file works" {
     argfile1="$(mktemp ./arg-file-test-XXXX)"
     argfile2="$(mktemp ./arg-file-test-XXXX)"
-    echo 1 > "$argfile1"
-    submit_job "a b
-c" --arg-file "$argfile1" --wait -o test-%a.out -- bash -c 'while read arg; do echo "$arg"; done'
-    ls
-    echo "test-0.out contents: `cat "test-0.out"`"
-    test "$(cat test-0.out)" = "a b
-c"
+    seq 3 > "$argfile1"
+    (echo a; echo b) > "$argfile2"
 
-    # TODO: test multiple arg files
+    # Single argument file
+    submit_job "$(echo a b; echo c)" --arg-file "$argfile1" --wait -o testaf-%a.out -- bash -c 'while read arg; do echo "$arg"; done'
+    test "$(cat testaf-0.out)" = "$(echo a b; echo c)"
+
+    # Multiple argument files
+    submit_job "X" -a "$argfile1" --wait -o testaf-%1-%2.out -a "$argfile2" -- echo
+    ls
+    for i in $(seq 1 3); do
+        for letter in a b; do
+            test "$(cat testaf-$i-$letter.out)" = "$i $letter"
+        done
+    done
 }
