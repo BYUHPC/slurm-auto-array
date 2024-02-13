@@ -191,7 +191,8 @@ echo "$@' > "$bad_infile"
     argfile1="$(mktemp ./arg-file-test-XXXX)"
     argfile2="$(mktemp ./arg-file-test-XXXX)"
     echo 1 > "$argfile1"
-    submit_job "'a b' c" --arg-file "$argfile1" --wait -o test-%a.out -- bash -c 'while read arg; do echo "$arg"; done'
+    submit_job "a b
+c" --arg-file "$argfile1" --wait -o test-%a.out -- bash -c 'while read arg; do echo "$arg"; done'
     ls
     echo "test-0.out contents: `cat "test-0.out"`"
     test "$(cat test-0.out)" = "a b

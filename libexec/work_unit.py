@@ -70,13 +70,12 @@ def outfile_name(format, work_unit_id, command):
 def parse(args):
     # Get arguments from command line
     arg_file_subdir = args[0]
-    stdin = args[1]
-    outfile_format = args[2]
-    errfile_format = args[3]
-    open_mode = args[4]
-    exterior_delimiter = args[5]
-    interior_delimiter = args[6]
-    command = args[7:-1]
+    outfile_format = args[1]
+    errfile_format = args[2]
+    open_mode = args[3]
+    exterior_delimiter = args[4]
+    interior_delimiter = args[5]
+    command = args[6:-1]
     work_identifier = args[-1]
 
     # Find work unit ID
@@ -91,11 +90,14 @@ def parse(args):
         else:
             command += raw_args.strip(interior_delimiter).split(interior_delimiter)
 
+    # Name of the file carrying stdin
+    stdinfile = os.path.join(arg_file_subdir, "stdin")
+
     # Get output and error file actual names given format
     outfile = outfile_name(outfile_format, work_unit_id, command)
     errfile = outfile_name(errfile_format, work_unit_id, command)
 
-    return stdin, outfile, errfile, open_mode, command
+    return stdinfile, outfile, errfile, open_mode, command
 
 
 

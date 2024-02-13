@@ -357,7 +357,7 @@ def parse(args=sys.argv[1:]):
     for message in info:    logger.info(message)
 
     # Return all the information we've found
-    return args, slurm_args, "/dev/null", command, logger
+    return args, slurm_args, command, logger
 
 ########################################################################################################################
 
@@ -426,7 +426,7 @@ def build_array_task_dir(arg_files, work_unit_size, array_task_size, max_array_t
 
 def main(cmd_line_args=sys.argv[1:]):
     # Parse
-    args, sbatch_args, work_unit_stdin, command, logger = parse(cmd_line_args)
+    args, sbatch_args, command, logger = parse(cmd_line_args)
 
     # Exit if GNU Parallel hasn't been set up
     if not os.path.exists(os.path.expanduser("~/.parallel/will-cite")):
@@ -449,6 +449,15 @@ def main(cmd_line_args=sys.argv[1:]):
     arg_file_subdir, array_task_size, work_unit_count, array_task_count = \
             build_array_task_dir(args.arg_file if args.arg_file else ["/dev/stdin"], work_unit_size, args.array_task_size,
                                  args.max_array_task_size, args.max_array_tasks, args.exterior_delimiter, args.dry_run)
+    
+    # Figure out whence to get stdin for each work unit
+    work_unit_stdin = os.path.join(arg_file_subdir, "stdin")
+    if args.arg_file: # stdin to slurm-auto-array gets passed to work units
+        with open(work_unit_stdin, "w") as f:
+            for line in sys.stdin:
+                f.write(line)
+    else:
+        os.symlink("/dev/null", work_unit_stdin)
 
     # Let the user know what's been parsed if verbose
     logger.info( "Finished parsing arguments; final values:")
@@ -497,7 +506,7 @@ def main(cmd_line_args=sys.argv[1:]):
     if work_unit_size.gpus: sbatch_args.append(f"--gpus-per-task={work_unit_size.gpus}")
     submit_command = ["sbatch"] + sbatch_args \
                    + [batch_script, work_unit_script, arg_file_subdir,
-                      work_unit_stdin, args.output, args.error, "a" if args.open_mode == "append" else "w",
+                      args.output, args.error, "a" if args.open_mode == "append" else "w",
                       args.exterior_delimiter, args.interior_delimiter] + command
 
     # Clean up any old argument file directories that don't have an associated job
