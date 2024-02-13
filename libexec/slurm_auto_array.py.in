@@ -24,7 +24,7 @@ SAA_ARG_FILE_DIR; it will be automatically deleted on job completion, or automat
 
 
 
-import re, os, sys, shutil, tempfile, subprocess, argparse, math, shlex, logging, time
+import re, os, sys, shutil, tempfile, subprocess, argparse, math, itertools, shlex, logging, time, struct
 
 
 
@@ -48,6 +48,33 @@ description = """slurm-auto-array automates the submission of sbatch job arrays.
 epilog = "See the man page or https://rc.byu.edu/wiki/?id=slurm-auto-array for more details and examples."
 
 version = "SAA_VERSION_STRING" # this gets substituted by make
+
+########################################################################################################################
+
+
+
+
+
+# HELPERS ##############################################################################################################
+
+class OrderedSet:
+    def __init__(self, iterable=None):
+        self._dict = {}
+        if iterable:
+            for item in iterable:
+                self.add(item)
+
+    def add(self, item):
+        if item: self._dict[item] = None
+
+    def __iter__(self):
+        return iter(self._dict)
+
+    def __contains__(self, item):
+        return item in self._dict
+
+    def __len__(self):
+        return len(self._dict)
 
 ########################################################################################################################
 
@@ -239,26 +266,11 @@ def parse(args=sys.argv[1:]):
         except FileNotFoundError:
             pass
 
-    # Make sure we don't have any no-no arguments
-    for arg in ["-a", "--array",
-                "--cpus-per-gpu",
-                "--cpus-per-task",
-                "--gpus-per-node",
-                "--gpus-per-socket",
-                "--gpus-per-task",
-                "--ntasks-per-core",
-                "--ntasks-per-node",
-                "--ntasks-per-socket",
-                "--wrap"]:
-        if any(filter(re.compile(f"^{arg}(=.*)?$").match, args)):
-            raise ValueError(f"sbatch argument '{arg}' disallowed")
-
-    # Parse main arguments
+    # Add user-facing argument
     parser = argparse.ArgumentParser(description=description, epilog=epilog,
-                                     usage='%(prog)s [options] [-- command [args ...]]')
+                                     usage="%(prog)s [options] [-- command [args ...]] < list_of_args\n" +
+                                    "       %(prog)s [options] [-- command [args ...]] (::: args |:::: argfile(s))...")
     parser.add_argument("-V", "--version", action="version", version=version)
-    parser.add_argument("--delimiter", metavar="D", default="\\n",
-                        help="string or regular expression separating work unit command lines; newline by default")
     parser.add_argument("-n", "--ntasks", metavar="N", type=positive_int, help=f"number of CPUs required by each unit" +
                         " of work ({configured_work_unit_size.cpus} by default)")
     parser.add_argument("-G", "--gpus", metavar="N", type=nonnegative_int, help=f"number of GPUs required by each " +
@@ -281,6 +293,9 @@ def parse(args=sys.argv[1:]):
                         help=f"Maximum desired allocation size of each array task, with the same format as -U " +
                              f"({configured_array_task_size} by default); can be exceeded if it doesn't allow the job" +
                              " to fit within the maximum job array count")
+    parser.add_argument("-a", "--arg-file", metavar="args.txt",
+                        action="append", help="Use args.txt as input rather than stdin; can be specified multiple " +
+                        "times, in which case all combinations of inputs from each arg file will be used")
     parser.add_argument("-l", "--logfile", metavar="output.log", default="slurm-auto-array-%A.log",
                         help="slurm-auto-array log file. Setting to /dev/null will suppress all output, including " +
                              "output and error files (slurm-auto-array-%%A.log by default)")
@@ -294,17 +309,40 @@ def parse(args=sys.argv[1:]):
                         help="Analogous to output, but for stderr (stderr goes to output file by default)")
     parser.add_argument("--open-mode", metavar="{append|truncate}", default="truncate",
                         help="Open log, output, and error files in the specified mode; see sbatch(1).")
+    parser.add_argument("--exterior-delimiter", "--delimiter", metavar="D", default="\n",
+                        help="string or regular expression separating work unit command lines; newline by default")
+    parser.add_argument("--interior-delimiter", metavar="D", default="shlex",
+                        help="string or regular expression separating arguments within work unit command lines; shlex" +
+                        " is used by default, meaning that you can quote arguments as you probably expect")
     parser.add_argument("-v", "--verbose", action="store_true", help="print verbose output")
     parser.add_argument("--dry-run", action="store_true", help="don't submit, but print what would have been done")
+
+    # Add hidden convenience arguments
     parser.add_argument("--default-work-unit-size", type=AllocationSize, default=configured_work_unit_size)
     parser.add_argument("--default-array-task-size", type=AllocationSize, default=configured_array_task_size)
     parser.add_argument("--max-array-task-size", type=AllocationSize, default=configured_max_array_task_size,
                         help=argparse.SUPPRESS)
     parser.add_argument("--max-array-tasks", type=positive_int, default=configured_max_tasks, help=argparse.SUPPRESS)
     parser.add_argument("--arg-file-dir", type=mkdir_if_possible, default=arg_file_dir, help=argparse.SUPPRESS)
+
+    # Parse
     args, slurm_args = parser.parse_known_args(args)
     if args.error is None:
         args.error = args.output
+
+    # Make sure we don't have any no-no arguments
+    for arg in ["-a", "--array",
+                "--cpus-per-gpu",
+                "--cpus-per-task",
+                "--gpus-per-node",
+                "--gpus-per-socket",
+                "--gpus-per-task",
+                "--ntasks-per-core",
+                "--ntasks-per-node",
+                "--ntasks-per-socket",
+                "--wrap"]:
+        if any(filter(re.compile(f"^{arg}(=.*)?$").match, slurm_args)):
+            raise ValueError(f"sbatch argument '{arg}' disallowed")
 
     # Setting up the most basic possible logger takes 6 lines for some reason
     logging_handler = logging.StreamHandler()
@@ -319,7 +357,64 @@ def parse(args=sys.argv[1:]):
     for message in info:    logger.info(message)
 
     # Return all the information we've found
-    return args, slurm_args, command, logger
+    return args, slurm_args, "/dev/null", command, logger
+
+########################################################################################################################
+
+
+
+
+
+# SET UP ARRAY TASKS ###################################################################################################
+
+def build_array_task_dir(arg_files, work_unit_size, array_task_size, max_array_task_size, max_array_tasks,
+                         exterior_delimiter, dry_run=False):
+    # Create the directory that will store the arguments
+    if not dry_run: os.makedirs(arg_file_dir, exist_ok=True)
+    arg_file_subdir = tempfile.mkdtemp(dir=arg_file_dir) if not dry_run else 'arg-file-subdir'
+
+    # Create the argument files, keeping track of argument positions in each written file
+    arg_positions = []
+    work_unit_count = 1
+    for i, arg_file in enumerate(arg_files):
+        arg_positions.append([0])
+        with open(arg_file, "rb") as infile:
+            file_args = OrderedSet(infile.read().split(exterior_delimiter.encode()))
+            work_unit_count *= len(file_args)
+            if not dry_run:
+                with open(os.path.join(arg_file_subdir, f"args.{i}"), "wb") as outfile:
+                    for arg in file_args:
+                        outfile.write(arg + exterior_delimiter.encode())
+                        arg_positions[i].append(outfile.tell())
+
+    # Determine size of array tasks
+    requested_array_task_size = AllocationSize(min(array_task_size.cpus, max_array_task_size.cpus),
+                                               min(array_task_size.gpus, max_array_task_size.gpus),
+                                               min(array_task_size.mem,  max_array_task_size.mem),
+                                               min(array_task_size.time, max_array_task_size.time))
+    array_task_size, array_task_count = array_task_size_and_count(work_unit_count, work_unit_size,
+                                                                  requested_array_task_size)
+    # Increase width if size isn't yet sufficient
+    if array_task_count > max_array_tasks:
+        requested_array_task_size.cpus = max_array_task_size.cpus
+        requested_array_task_size.gpus = max_array_task_size.gpus
+        requested_array_task_size.cpus = max_array_task_size.mem
+        array_task_size, array_task_count = array_task_size_and_count(work_unit_count, work_unit_size,
+                                                                      requested_array_task_size)
+    # Increase time if size still isn't sufficient
+    if array_task_count > max_array_tasks:
+        array_task_size, array_task_count = array_task_size_and_count(work_unit_count, work_unit_size,
+                                                                      max_array_task_size)
+
+    # Write array task argument index files
+    if not dry_run:
+        position_files = [open(os.path.join(arg_file_subdir, f"task.{i}"), "wb") for i in range(array_task_count)]
+        for i, (position_file, positions) in enumerate(zip(itertools.cycle(position_files),
+                                                           itertools.product(*arg_positions))):
+            position_file.write((f"{i}," + ",".join([str(p) for p in positions]) + "\n").encode())
+
+    # Return the argument file subdirectory and the number of array tasks
+    return arg_file_subdir, array_task_size, work_unit_count, array_task_count
 
 ########################################################################################################################
 
@@ -331,7 +426,7 @@ def parse(args=sys.argv[1:]):
 
 def main(cmd_line_args=sys.argv[1:]):
     # Parse
-    args, sbatch_args, command, logger = parse(cmd_line_args)
+    args, sbatch_args, work_unit_stdin, command, logger = parse(cmd_line_args)
 
     # Exit if GNU Parallel hasn't been set up
     if not os.path.exists(os.path.expanduser("~/.parallel/will-cite")):
@@ -339,14 +434,6 @@ def main(cmd_line_args=sys.argv[1:]):
         sys.exit(1)
     if not os.path.exists(os.path.expanduser("~/.parallel/ignored_vars")):
         logger.error(f"You must run `parallel --record-env` in a clean environment before using {sys.argv[0]}; exiting")
-        sys.exit(1)
-
-    # Get arguments from stdin to figure out how many work units there are
-    delimiter_literal = args.delimiter.encode("ascii", "ignore").decode("unicode_escape")
-    work_unit_args = [line for line in sys.stdin.read().split(delimiter_literal) if line]
-    work_unit_count = len(work_unit_args)
-    if not work_unit_count:
-        print("No arguments provided--exiting")
         sys.exit(1)
 
     # Determine size of work units
@@ -358,24 +445,10 @@ def main(cmd_line_args=sys.argv[1:]):
     elif args.mem_per_cpu: work_unit_size.mem  = mem_to_mb(args.mem_per_cpu) * args.ntasks
     if args.time:          work_unit_size.time = time_to_mins(args.time)
 
-    # Determine size of array tasks
-    requested_array_task_size = AllocationSize(min(args.array_task_size.cpus, args.max_array_task_size.cpus),
-                                               min(args.array_task_size.gpus, args.max_array_task_size.gpus),
-                                               min(args.array_task_size.mem,  args.max_array_task_size.mem),
-                                               min(args.array_task_size.time, args.max_array_task_size.time))
-    array_task_size, array_task_count = array_task_size_and_count(work_unit_count, args.work_unit_size,
-                                                                  requested_array_task_size)
-    # Increase width if size isn't yet sufficient
-    if array_task_count > args.max_array_tasks:
-        requested_array_task_size.cpus = args.max_array_task_size.cpus
-        requested_array_task_size.gpus = args.max_array_task_size.gpus
-        requested_array_task_size.cpus = args.max_array_task_size.mem
-        array_task_size, array_task_count = array_task_size_and_count(work_unit_count, args.work_unit_size,
-                                                                      requested_array_task_size)
-    # Increase time if size still isn't sufficient
-    if array_task_count > args.max_array_tasks:
-        array_task_size, array_task_count = array_task_size_and_count(work_unit_count, args.work_unit_size,
-                                                                      args.max_array_task_size)
+    # Create the array task argument directory
+    arg_file_subdir, array_task_size, work_unit_count, array_task_count = \
+            build_array_task_dir(args.arg_file if args.arg_file else ["/dev/stdin"], work_unit_size, args.array_task_size,
+                                 args.max_array_task_size, args.max_array_tasks, args.exterior_delimiter, args.dry_run)
 
     # Let the user know what's been parsed if verbose
     logger.info( "Finished parsing arguments; final values:")
@@ -411,7 +484,6 @@ def main(cmd_line_args=sys.argv[1:]):
         sys.exit(1)
 
     # Prepare job submission command
-    arg_file_subdir = tempfile.mkdtemp(dir=arg_file_dir) if not args.dry_run else 'arg-file-subdir'
     batch_script = os.path.join(os.path.dirname(os.path.realpath(__file__)), "task.sh")
     work_unit_script = os.path.join(os.path.dirname(os.path.realpath(__file__)), "work_unit.py")
     ntasks = math.ceil(array_task_size.cpus/work_unit_size.cpus)
@@ -421,12 +493,12 @@ def main(cmd_line_args=sys.argv[1:]):
                     f"--cpus-per-task={work_unit_size.cpus}",
                     f"--mem-per-cpu={math.ceil(work_unit_size.mem/work_unit_size.cpus)}",
                     f"--time={array_task_size.time}",
-                    f"--array=1-{array_task_count}"]
+                    f"--array=0-{array_task_count-1}"] # account for zero indexing
     if work_unit_size.gpus: sbatch_args.append(f"--gpus-per-task={work_unit_size.gpus}")
     submit_command = ["sbatch"] + sbatch_args \
-                   + [batch_script, arg_file_subdir, delimiter_literal, work_unit_script, args.output, args.error,
-                      "a" if args.open_mode == "append" else "w"] \
-                   + command
+                   + [batch_script, work_unit_script, arg_file_subdir,
+                      work_unit_stdin, args.output, args.error, "a" if args.open_mode == "append" else "w",
+                      args.exterior_delimiter, args.interior_delimiter] + command
 
     # Clean up any old argument file directories that don't have an associated job
     if not args.dry_run:
@@ -443,22 +515,13 @@ def main(cmd_line_args=sys.argv[1:]):
                 logger.info(f"Removing stale argument file directory {job_dir} (job {other_job_id})")
                 shutil.rmtree(job_dir)
 
-    # Set a couple of environment variables
+    # Set environment variables for job
     os.environ["OMP_NUM_THREADS"] = str(work_unit_size.cpus)
 
     # If this is a dry run, print what would have happened and exit here
     if args.dry_run:
         print("Job that would have been submitted: " + " ".join(submit_command))
         sys.exit()
-
-    # Write arguments to files for each job array task
-    os.makedirs(arg_file_dir, exist_ok=True)
-    for i in range(array_task_count):
-        with open(os.path.join(arg_file_subdir, f"{i+1}.in"), "w") as f:
-            this_work_unit_args = work_unit_args[i::array_task_count]
-            this_work_unit_indices = range(work_unit_count)[i::array_task_count]
-            f.write(delimiter_literal.join(f"{i+1} {arg}" for arg, i in zip(this_work_unit_args,
-                                                                            this_work_unit_indices)))
 
     # Submit the job
     try:

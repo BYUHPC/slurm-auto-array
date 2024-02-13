@@ -10,6 +10,32 @@ Arguments are all passed as a single argument to be split by shlex, since that's
 This script is not meant to be run manually.
 """
 
+
+
+def read_to_delimiter(file_path, start_pos, delimiter):
+    with open(file_path, 'rb') as file:
+        # Seek to the specified start position
+        file.seek(start_pos)
+
+        buffer = b''
+        chunk_size = 1024
+
+        while True:
+            chunk = file.read(chunk_size)
+            if not chunk:
+                break  # End of file reached
+
+            buffer += chunk
+            delimiter_pos = buffer.find(delimiter.encode())
+
+            if delimiter_pos != -1:
+                return buffer[:delimiter_pos].decode()
+
+        # Return whatever is available if the delimiter is not found
+        return buffer.decode()
+
+
+
 def outfile_name(format, work_unit_id, command):
     if '\\' in format:
         return re.sub("\\", "", format)
@@ -42,29 +68,52 @@ def outfile_name(format, work_unit_id, command):
 
 
 def parse(args):
-    outfile_format = args[0]
-    errfile_format = args[1]
-    open_mode = args[2]
-    command = args[3:-1]
-    work_unit_id, remaining_args = args[-1].split(" ", 1)
-    command += shlex.split(remaining_args)
-    return outfile_format, errfile_format, open_mode, work_unit_id, command
+    # Get arguments from command line
+    arg_file_subdir = args[0]
+    stdin = args[1]
+    outfile_format = args[2]
+    errfile_format = args[3]
+    open_mode = args[4]
+    exterior_delimiter = args[5]
+    interior_delimiter = args[6]
+    command = args[7:-1]
+    work_identifier = args[-1]
+
+    # Find work unit ID
+    parsed_identifier = work_identifier.split(",")
+    work_unit_id = int(parsed_identifier[0])
+
+    # Read arguments from the appropriate position of the argument file
+    for i, position in enumerate(parsed_identifier[1:]):
+        raw_args = read_to_delimiter(os.path.join(arg_file_subdir, f"args.{i}"), int(position), exterior_delimiter)
+        if interior_delimiter == "shlex":
+            command += shlex.split(raw_args)
+        else:
+            command += raw_args.strip(interior_delimiter).split(interior_delimiter)
+
+    # Get output and error file actual names given format
+    outfile = outfile_name(outfile_format, work_unit_id, command)
+    errfile = outfile_name(errfile_format, work_unit_id, command)
+
+    return stdin, outfile, errfile, open_mode, command
 
 
 
 def main(args=sys.argv[1:]):
-    # "Parse"
-    outfile_format, errfile_format, open_mode, work_unit_id, command = parse(args)
+    # Parse
+    stdin, outfile, errfile, open_mode, command = parse(args)
+
     # Redirect stderr and stdout to the appropriate file(s)
-    with open(outfile_name(outfile_format, work_unit_id, command), open_mode) as out, \
-         open(outfile_name(errfile_format, work_unit_id, command), open_mode) as err:
+    with open(outfile, open_mode) as out, \
+         open(errfile, open_mode) as err:
         # First try a command within this directory
+        opened_stdin = subprocess.DEVNULL if stdin == "/dev/null" else open(stdin)
         try:
-            subprocess.run(["./" + command[0]] + command[1:], stdout=out, stderr=err)
+            subprocess.run(["./" + command[0]] + command[1:], stdout=out, stderr=err, stdin=opened_stdin)
         except FileNotFoundError:
             # Next, try a command in PATH
             try:
-                subprocess.run(command, stdout=out, stderr=err)
+                subprocess.run(command, stdout=out, stderr=err, stdin=opened_stdin)
             # If neither worked, print an error
             except FileNotFoundError:
                 print(f"Could not find command '{command[0]}' in current directory or $PATH", file=sys.stderr)

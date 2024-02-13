@@ -47,5 +47,6 @@ Documentation and tests are by far the most important improvements needed. Outsi
 
 - Functionality similar to `parallel`'s "`:::`" to allow users to cross sets of arguments
 - Dynamic scheduling with a work database and consumer workers
+- Dask instead of parallel?
 
 In addition to the usual bugs and feature requests, please open an issue if you find any of the documentation confusing--the original purpose of `slurm-auto-array` was to make it easy for users to submit job arrays, and bad documentation defeats that core purpose.

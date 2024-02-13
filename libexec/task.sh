@@ -6,10 +6,7 @@
 # The actual work units are run by work_unit.py in this same directory
 
 # "Parse"
-infile="$1/$SLURM_ARRAY_TASK_ID.in"
-shift
-delimiter="$1"
-shift
+infile="$2/task.$SLURM_ARRAY_TASK_ID"
 
 # Determine how many tasks should be run on which nodes
 ssh_login_file="$(mktemp)"
@@ -19,7 +16,6 @@ paste -d '/' <(perl -pe 's/(\d+)\(x(\d+)\)/substr("$1,"x$2,0,-1)/ge' <<< $SLURM_
 
 # Launch workers
 parallel --arg-file "$infile" \
-         --delimiter "$delimiter" \
          --env _ \
          --quote \
          --jobs "$SLURM_NTASKS" \

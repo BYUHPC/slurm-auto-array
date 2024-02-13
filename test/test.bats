@@ -73,7 +73,9 @@ scontrol_get() {
 @test "basic job submission works" {
     local ARGS="$(echo -e 'A\nB\nC')"
     submit_job "$ARGS" --wait -U 1,0,1G,1 -l "basic-test.log" -o "basic-test-%a.out" -- echo arguments supplied:
-    test "$(cat "$SAA_TESTING_DIR/basic-test-3.out")" = "arguments supplied: C"
+    ls "$SAA_TESTING_DIR"
+    echo "CONTENTS: '$(cat "$SAA_TESTING_DIR/basic-test-2.out")'"
+    test "$(cat "$SAA_TESTING_DIR/basic-test-2.out")" = "arguments supplied: C"
 }
 
 
@@ -98,7 +100,7 @@ scontrol_get() {
         scancel "$job_id"
 
         # Actual values
-        local tasks="$(scontrol_get $job_id ArrayTaskId '[0-9-]+' | awk -F- '{print $NF}')"
+        local tasks="$(scontrol_get $job_id ArrayTaskId '[0-9-]+' | awk -F- '{print $NF+1}')"
         local cpus="$(scontrol_get $job_id NumCPUs '\d+')"
         local mem="$(scontrol_get $job_id mem '\d+[KMGT]')"
         local timelim="$(scontrol_get $job_id TimeLimit '[0-9:]+')"
@@ -151,9 +153,9 @@ SAA_DEFAULT_ARRAY_TASK_SIZE=1,1,4G,00:10:00' > "$SAA_CONFIG_FILE"
     FORMAT='test-%%-%a-%A-%N-%u-%x-%1-%2.out'
     job_id="$(submit_job "$(seq 4 | awk '{print argument, $1}')" --verbose -n 1 --mem 256m -t 1 --wait -o "$FORMAT" --job-name oftest -- echo argument)"
     job_host="$(scontrol show job "$job_id" | grep -oP '\sNodeList=\K\S+')"
+    ls
     for i in {1..4}; do
-        filename="test-%-$i-$job_id-$job_host-$USER-oftest-argument-$i.out"
-        ls "$filename"
+        filename="test-%-$((i-1))-$job_id-$job_host-$USER-oftest-argument-$i.out"
         test "$(cat "$filename")" = "argument $i"
     done
     # TODO: test that when you specify %3 but there are only two arguments on the command line, it just stays as '%3' (and document that's what happens)
@@ -185,20 +187,15 @@ echo "$@' > "$bad_infile"
 
 
 
-@test "configuration file and environment variables behave correctly" {
-    # Unset relevant environment variables
-    unset SAA_MAX_ARRAY_TASKS SAA_DEFAULT_WORK_UNIT_SIZE SAA_DEFAULT_ARRAY_TASK_SIZE SAA_MAX_ARRAY_TASK_SIZE
+@test "--arg-file works" {
+    argfile1="$(mktemp ./arg-file-test-XXXX)"
+    argfile2="$(mktemp ./arg-file-test-XXXX)"
+    echo 1 > "$argfile1"
+    submit_job "'a b' c" --arg-file "$argfile1" --wait -o test-%a.out -- bash -c 'while read arg; do echo "$arg"; done'
+    ls
+    echo "test-0.out contents: `cat "test-0.out"`"
+    test "$(cat test-0.out)" = "a b
+c"
 
-    # Create a config file
-    SAA_CONFIG_FILE="$(mktemp)" # node-local should be okay
-    echo 'SAA_MAX_ARRAY_TASKS=5
-SAA_DEFAULT_WORK_UNIT_SIZE=1,0,1G,00:01:00
-SAA_DEFAULT_ARRAY_TASK_SIZE=4,1,8G,00:10:00' > "$SAA_CONFIG_FILE"
-
-    # Set environment variables
-    export SAA_MAX_ARRAY_TASK_SIZE='10,1,5G,00:30:00'
-    export SAA_DEFAULT_ARRAY_TASK_SIZE='2,1,4G,00:05:00'
-
-    # Clean up
-    rm "$SAA_CONFIG_FILE"
+    # TODO: test multiple arg files
 }
