@@ -24,7 +24,7 @@ SAA_ARG_FILE_DIR; it will be automatically deleted on job completion, or automat
 
 
 
-import re, os, sys, shutil, tempfile, subprocess, argparse, math, itertools, shlex, logging, time, struct
+import re, os, sys, shutil, tempfile, subprocess, argparse, math, itertools, shlex, logging, time, atexit
 
 
 
@@ -75,6 +75,13 @@ class OrderedSet:
 
     def __len__(self):
         return len(self._dict)
+
+
+
+def removesuffix(s, suffix):
+    if suffix and s.endswith(suffix):
+        return s[:-len(suffix)]
+    return s
 
 ########################################################################################################################
 
@@ -330,6 +337,51 @@ def parse(args=sys.argv[1:]):
     if args.error is None:
         args.error = args.output
 
+    # Grab arguments specified with ::::?\+?
+    colons_index = next((i for i in range(len(command)) if re.match(command[i], r"::::?\+?")), None)
+    if colons_index:
+        colon_arg_files = []
+        colon_args = command[colons_index:]
+        command = command[:colons_index]
+
+        # Define handlers for each type of splitter
+        def handle_files(arg):        # ::::
+            colon_arg_files.append(arg)
+        def handle_files_linked(arg): # ::::+
+            colon_arg_files[-1] += "\0" + arg
+        def handle_args(arg):         # :::
+            open(colon_arg_files[-1], "a").write(arg + args.exterior_delimiter)
+        def handle_args_linked(arg):  # :::+
+            filename = colon_arg_files[-1].split("\0")[-1]
+            open(filename, "a").write(arg + args.exterior_delimiter)
+        def handle_error(arg):
+            raise RuntimeError("Logic error in slurm-auto-array parser")
+        handler = handle_error
+
+        # Iterate over colon arguments, appending to colon_arg_files until arguments are exhausted
+        for colon_arg in colon_args:
+            if colon_arg == "::::":
+                handler = handle_files
+            elif colon_arg == "::::+":
+                handler = handle_files_linked
+            elif colon_arg == ":::":
+                temp_arg_file = tempfile.NamedTemporaryFile(delete=False, prefix="saa-args").name
+                atexit.register(lambda x: os.remove(x), temp_arg_file)
+                colon_arg_files.append(temp_arg_file)
+                handler = handle_args
+            elif colon_arg == ":::+":
+                temp_arg_file = tempfile.NamedTemporaryFile(delete=False, prefix="saa-args").name
+                atexit.register(lambda x: os.remove(x), temp_arg_file)
+                colon_arg_files[-1] += "\0" + temp_arg_file
+                handler = handle_args_linked
+            else:
+                handler(colon_arg)
+
+        # Append colon_arg_files to args.arg_file
+        if colon_arg_files:
+            if args.arg_file: args.arg_file += colon_arg_files
+            else:             args.arg_file =  colon_arg_files
+
     # Make sure we don't have any no-no arguments
     for arg in ["-a", "--array",
                 "--cpus-per-gpu",
@@ -376,17 +428,19 @@ def build_array_task_dir(arg_files, work_unit_size, array_task_size, max_array_t
     # Create the argument files, keeping track of argument positions in each written file
     arg_positions = []
     work_unit_count = 1
-    for i, arg_file in enumerate(arg_files):
-        arg_positions.append([0])
-        with open(arg_file, "rb") as infile:
-            file_args = OrderedSet(infile.read().split(exterior_delimiter.encode()))
-            work_unit_count *= len(file_args)
-            if not dry_run:
-                with open(os.path.join(arg_file_subdir, f"args.{i}"), "wb") as outfile:
-                    for arg in file_args:
-                        outfile.write(arg + exterior_delimiter.encode())
-                        arg_positions[i].append(outfile.tell())
-                    del arg_positions[i][-1] # the last one is extra
+    for i, arg_file_group in enumerate(arg_files):
+        arg_positions.append([])
+        arg_file_contents = [removesuffix(open(infile, "rb").read(), exterior_delimiter.encode()).
+                             split(exterior_delimiter.encode()) for infile in arg_file_group.strip("\0").split("\0")]
+        outfiles = [open(os.path.join(arg_file_subdir, f"args.{i}.{j}") if not dry_run else "/dev/null", "wb")
+                    for j in range(len(arg_file_contents))]
+        for arg_set in zip(*arg_file_contents): # trims to the length of the shortest input file
+            arg_positions[i].append([])
+            for outfile, arg in zip(outfiles, arg_set):
+                arg_positions[i][-1].append(outfile.tell())
+                if not dry_run: outfile.write(arg + exterior_delimiter.encode())
+        work_unit_count *= len(arg_positions[i])
+    print(arg_positions)
 
     # Determine size of array tasks
     requested_array_task_size = AllocationSize(min(array_task_size.cpus, max_array_task_size.cpus),
@@ -453,12 +507,13 @@ def main(cmd_line_args=sys.argv[1:]):
     
     # Figure out whence to get stdin for each work unit
     work_unit_stdin = os.path.join(arg_file_subdir, "stdin")
-    if args.arg_file: # stdin to slurm-auto-array gets passed to work units
-        with open(work_unit_stdin, "w") as f:
-            for line in sys.stdin:
-                f.write(line)
-    else:
-        os.symlink("/dev/null", work_unit_stdin)
+    if not args.dry_run:
+        if args.arg_file: # stdin to slurm-auto-array gets passed to work units
+            with open(work_unit_stdin, "w") as f:
+                for line in sys.stdin:
+                    f.write(line)
+        else:
+            os.symlink("/dev/null", work_unit_stdin)
 
     # Let the user know what's been parsed if verbose
     logger.info( "Finished parsing arguments; final values:")
