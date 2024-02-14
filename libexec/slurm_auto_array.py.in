@@ -24,7 +24,7 @@ SAA_ARG_FILE_DIR; it will be automatically deleted on job completion, or automat
 
 
 
-import re, os, sys, shutil, tempfile, subprocess, argparse, math, itertools, shlex, logging, time, atexit
+import re, os, sys, shutil, tempfile, subprocess, argparse, math, itertools, shlex, logging, time, atexit, select
 
 
 
@@ -440,7 +440,6 @@ def build_array_task_dir(arg_files, work_unit_size, array_task_size, max_array_t
                 arg_positions[i][-1].append(outfile.tell())
                 if not dry_run: outfile.write(arg + exterior_delimiter.encode())
         work_unit_count *= len(arg_positions[i])
-    print(arg_positions)
 
     # Determine size of array tasks
     requested_array_task_size = AllocationSize(min(array_task_size.cpus, max_array_task_size.cpus),
@@ -466,7 +465,9 @@ def build_array_task_dir(arg_files, work_unit_size, array_task_size, max_array_t
         position_files = [open(os.path.join(arg_file_subdir, f"task.{i}"), "wb") for i in range(array_task_count)]
         for i, (position_file, positions) in enumerate(zip(itertools.cycle(position_files),
                                                            itertools.product(*arg_positions))):
-            position_file.write((f"{i}," + ",".join([str(p) for p in positions]) + "\n").encode())
+            position_str = ",".join([str(p) for position in positions for p in position])
+            print(position_str)
+            position_file.write((f"{i}," + position_str + "\n").encode())
 
     # Return the argument file subdirectory and the number of array tasks
     return arg_file_subdir, array_task_size, work_unit_count, array_task_count
@@ -508,7 +509,7 @@ def main(cmd_line_args=sys.argv[1:]):
     # Figure out whence to get stdin for each work unit
     work_unit_stdin = os.path.join(arg_file_subdir, "stdin")
     if not args.dry_run:
-        if args.arg_file: # stdin to slurm-auto-array gets passed to work units
+        if args.arg_file and select.select([sys.stdin], [], [], 0)[0]: # stdin to slurm-auto-array gets passed to work units
             with open(work_unit_stdin, "w") as f:
                 for line in sys.stdin:
                     f.write(line)

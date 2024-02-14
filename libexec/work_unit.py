@@ -82,9 +82,10 @@ def parse(args):
     parsed_identifier = work_identifier.split(",")
     work_unit_id = int(parsed_identifier[0])
 
-    # Read arguments from the appropriate position of the argument file
-    for i, position in enumerate(parsed_identifier[1:]):
-        raw_args = read_to_delimiter(os.path.join(arg_file_subdir, f"args.{i}"), int(position), exterior_delimiter)
+    # Iterate over argument files, getting arguments based on the positions specified by the work identifier
+    arg_files = [os.path.join(arg_file_subdir, f) for f in os.listdir(arg_file_subdir) if re.match(r"args.\d+.\d+", f)]
+    for arg_file, position in zip(arg_files, parsed_identifier[1:]):
+        raw_args = read_to_delimiter(arg_file, int(position), exterior_delimiter)
         if interior_delimiter == "shlex":
             command += shlex.split(raw_args)
         else:
