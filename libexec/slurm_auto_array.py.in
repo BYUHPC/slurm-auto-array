@@ -466,7 +466,6 @@ def build_array_task_dir(arg_files, work_unit_size, array_task_size, max_array_t
         for i, (position_file, positions) in enumerate(zip(itertools.cycle(position_files),
                                                            itertools.product(*arg_positions))):
             position_str = ",".join([str(p) for position in positions for p in position])
-            print(position_str)
             position_file.write((f"{i}," + position_str + "\n").encode())
 
     # Return the argument file subdirectory and the number of array tasks

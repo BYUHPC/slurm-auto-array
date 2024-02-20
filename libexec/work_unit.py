@@ -18,7 +18,7 @@ def read_to_delimiter(file_path, start_pos, delimiter):
         file.seek(start_pos)
 
         buffer = b''
-        chunk_size = 1024
+        chunk_size = 4096 # probably won't use this much, but it's not like reading less is likely to affect spped
 
         while True:
             chunk = file.read(chunk_size)
