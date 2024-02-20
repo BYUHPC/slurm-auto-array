@@ -260,7 +260,7 @@ def parse(args=sys.argv[1:]):
     # Add #SBATCH/#SAA files from the input file, if there is one
     if command and command[0]:
         try:
-            with open(command[0] if os.path.isfile(command[0]) else shutil.which(command[0])) as f:
+            with open(command[0] if os.path.exists(command[0]) else shutil.which(command[0])) as f:
                 for line in (line.strip() for line in f):
                     if line and line[0] != "#":
                         break
@@ -270,6 +270,8 @@ def parse(args=sys.argv[1:]):
                             args.append(flag)
         except UnicodeDecodeError:
             info += [f"File '{command[0]}' cannot be read as text and will not be parsed for '#SBATCH' flags"]
+        except TypeError:
+            warning += [f"File '{command[0]}' does not exist"]
         except FileNotFoundError:
             pass
 
