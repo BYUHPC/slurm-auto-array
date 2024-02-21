@@ -19,6 +19,5 @@ parallel --arg-file "$infile" \
          --env _ \
          --quote \
          --jobs "$SLURM_NTASKS" \
-         --ssh "ssh -o ServerAliveInterval=300" --sshloginfile "$ssh_login_file" \
          --workdir . \
          python3 "$@" {} & wait
