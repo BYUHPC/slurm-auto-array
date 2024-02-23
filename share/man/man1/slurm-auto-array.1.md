@@ -18,6 +18,7 @@ header: BYU Office of Research Computing
 [`-m N{K|M|G}` | `--mem-per-cpu N{K|M|G}` | `--mem-per-gpu N{K|M|G}`]
 [`-t D-HH:MM:SS`] [`-U CPUs,GPUs,mem,time`] [`-T CPUs,GPUs,mem,time`]
 [`-l x.log`] [`-o x.out`] [`-e x.err`] [`-v`] [`--dry-run`] [`-- COMMAND [args...]`]
+[`::: args ...` | `:::+ args ...` | `:::: argfiles ...` | `::::+ argfiles ...`]
 
 You can also pass most arguments that `sbatch` takes, for instance to specify a QOS.
 
@@ -54,6 +55,16 @@ Second: a b
 
 `job-2.txt` and `job-3.txt` would contain similar text, with the numbers and characters swapped appropriately.
 
+Like `parallel`, `:::`, `:::+`, `::::`, and `::::+` can be used to specify arguments rather than stdin--the following
+examples will produce equivalent output to the one above:
+
+```bash
+slurm-auto-array -o job-%a.txt -- python3 printargs.py :::  1 2 3    :::+ 'A a' 'B b' 'C c'
+slurm-auto-array -o job-%a.txt -- python3 printargs.py :::: <(seq 3) :::+ 'A a' 'B b' 'C c'
+```
+
+...given that `printargs.py` contains what was run by `python3` in the first example.
+
 In order to reduce strain on the scheduler and maximize throughput, if your command doesn't need much time or many
 resources, multiple instances of the command may be aggregated into one array task. For instance, if you submit with
 `--time=02:00:00 --ntasks=2 --mem=4G`, each array task may, depending on your configuration, run 4 instances of your
@@ -77,59 +88,107 @@ You'll need to run `parallel --citation; parallel --record-env` in a clean envir
 ## OPTIONS
 
 `-h`, `--help`
-    show a help message and exit
+
+:   Show a help message and exit.
 
 `-V`, `--version`
-    show the version number and exit
 
-`--delimiter D`
-    the string or regular expression separating work unit command lines (default: newline); as an example, this could be
-    `\0` if you were using null-delimited sets of arguments
+:   Show the version number and exit.
 
 `-n N`, `--ntasks N`
-    number of CPUs required by each unit of work (default: 1)
+
+:   Number of CPUs required by each unit of work (default: 1).
 
 `-G N`, `--gpus N`
-    number of GPUs required by each unit of work (default: 0)
+
+:   Number of GPUs required by each unit of work (default: 0).
 
 `-m N{K|M|G}`, `--mem N{K|M|G}`
-    memory required by each unit of work; mutually exclusive with `--mem-per-cpu` and `--mem-per-gpu`
+
+:   Memory required by each unit of work; mutually exclusive with `--mem-per-cpu` and `--mem-per-gpu`.
 
 `--mem-per-cpu N{K|M|G}`
-    memory required by each CPU (default: 2G); mutually exclusive with `--mem` and `--mem-per-gpu`
+
+:   Memory required by each CPU (default: 2G); mutually exclusive with `--mem` and `--mem-per-gpu`.
 
 `--mem-per-gpu N{K|M|G}`
-    memory required by each GPU; mutually exclusive with `--mem` and `--mem-per-cpu`
+
+:   Memory required by each GPU; mutually exclusive with `--mem` and `--mem-per-cpu`.
 
 `-t D-HH:MM:SS`, `--time D-HH:MM:SS`
-    time required by each unit of work; see **sbatch(1)** for formatting (default: 1 hour)
+
+:   Time required by each unit of work; see **sbatch(1)** for formatting (default: 1 hour)
 
 `-U CPUs,GPUs,mem,time`, `--work-unit-size CPUs,GPUs,mem,time`
-    Allocation size of each work unit, with respective formats those of -n, -G, -m, and -t (1,0,2048M,60 by default);
-    this supersedes `-n`, `-G`, `--mem-per-cpu`, and `-t` if specified
+
+:   Allocation size of each work unit, with respective formats those of -n, -G, -m, and -t (1,0,2048M,60 by default).
+    This supersedes `-n`, `-G`, `--mem-per-cpu`, and `-t` if specified.
 
 `-T CPUs,GPUs,mem,time`, `--array-task-size CPUs,GPUs,mem,time`
-    Desired allocation size of each array task, with the same format as -U (8,2,16384M,720 by default); `-T` is ignored
+
+:   Desired allocation size of each array task, with the same format as -U (8,2,16384M,720 by default); `-T` is ignored
     if it isn't sufficiently large to allow the job array to submit
 
+`-a argfile, --arg-file argfile`
+
+:   Use `argfile` as input rather than stdin. Can be specified multiple times, in which case all combinations of inputs
+    from each argument file will be used. If specified, `stdin` will be passed to the work unit commands.
+
 `-l output.log`, `--logfile output.log`
-    `slurm-auto-array` log file; setting to `/dev/null` will suppress all output, including output and error files
-    (default `slurm-auto-array-%A.log`)
+
+:   `slurm-auto-array` log file; setting to `/dev/null` will suppress all output, including output and error files
+    (default `slurm-auto-array-%A.log`).
 
 `-o output.out`, `--output output.out`
-    File (with optional formatting) to which to write stdout for each array task; only a subset of sbatch's formatting
+
+:   File (with optional formatting) to which to write stdout for each array task; only a subset of sbatch's formatting
     options are supported, namely `%%`, `%a`, `%A`, `%N`, `%u`, and `%x`; see sbatch(1) (default
-    `slurm-auto-array-%A_%a.out`); you can also specify `%0` to replace the command being run, `%1` to replace its first
+    `slurm-auto-array-%A_%a.out`). You can also specify `%0` to replace the command being run, `%1` to replace its first
     argument, `%2` to replace the second, etc.
 
 `-e output.err`, `--error output.err`
-    Analogous to `-o`, but for stderr; defaults to the file specified by `-o`
+
+:   Analogous to `-o`, but for stderr; defaults to the file specified by `-o`.
+
+`--delimiter D, --exterior-delimiter D`
+
+:   The string or regular expression separating work unit command lines (default: newline). As an example, this could be
+    `\0` if you were using null-delimited sets of arguments.
+
+`--interior-delimiter D`
+
+:   The string or regular expression separating arguments within a work unit's command line. Python's `shlex` is used by
+    default, so you can quote arguments as you would probably expect.
 
 `-v`, `--verbose`
-    print verbose output (default: no)
+
+:   Print verbose output (default: no).
 
 `--dry-run`
-    don't submit; print what would have been done (default: no)
+
+:   Don't submit; print what would have been done (default: no).
+
+`::: args`
+
+:   Run the given command on each of the arguments (separated by the interior delimiter) that follow `:::`. Specified
+    after the command. Multiple sets of `:::` can be specified, in which case the arguments will be crossed. For
+    example, `slurm-auto-array -- echo ::: a b c ::: 1 2` will print every combination of the letter and number
+    arguments (`a 1`, `a 2`, `b 1`, ...), for six total work units. If this is specified, stdin will be passed to the
+    work unit command rather than being used as arguments.
+
+`:::+ args`
+
+:   Behaves similarly to `:::`, but pairs its arguments with the previous arguments rather than crossing them. For
+    example, `slurm-auto-array -- echo ::: a b c :::+ 1 2 3 4` will print `a 1`, `b 2`, and `c 3`. If the argument lists
+    are of different length, the longer list is truncated.
+
+`:::: argfiles`
+
+:   Similar to `:::`, but using argument files (see `--arg-file`) rather than arguments.
+
+`::::+ argfiles`
+
+:   `::::+` is to `::::` as `:::+` is to `:::`.
 
 Since `slurm-auto-array` is a thin wrapper over `sbatch`, any argument that `slurm-auto-array` doesn't recognize is
 passed directly to `sbatch`; this means that you can specify constraints, partitions, job names, etc. A few `sbatch`
@@ -137,7 +196,8 @@ arguments (those that would interfere with the correct splitting up of work) are
 `--array`, `--cpus-per-gpu`, `--cpus-per-task`, `--gpus-per-node`, `--gpus-per-socket`, `--gpus-per-task`,
 `--ntasks-per-core`, `--ntasks-per-node`, and `--ntasks-per-socket`.
 
-`#SBATCH` directives within submission scripts are also parsed.
+`#SBATCH` directives within submission scripts are also parsed; `#SAA` directives are treated identically to allow
+flags only used for `slurm-auto-array` to be safely included.
 
 
 
@@ -164,7 +224,7 @@ The same keys can also be specified as environment variables, which will superse
 `sbatch` flags can be separated from their values and still parse--for instance, the following would work, running the
 job array on the `myqos` QOS:
 
-`slurm-auto-arry --qos --verbose myqos -- mycmd < my-args.txt`
+`slurm-auto-arry --qos --verbose myqos -- mycmd :::: my-args.txt`
 
 
 
