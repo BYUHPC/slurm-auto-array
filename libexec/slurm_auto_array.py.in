@@ -275,60 +275,72 @@ def parse(args=sys.argv[1:]):
         except FileNotFoundError:
             pass
 
-    # Add user-facing argument
-    parser = argparse.ArgumentParser(description=description, epilog=epilog,
+    # Add user-facing arguments
+    parser = argparse.ArgumentParser(description=description, epilog=epilog, conflict_handler="resolve",
                                      usage="%(prog)s [options] [-- command [args ...]] < list_of_args\n" +
-                                    "       %(prog)s [options] [-- command [args ...]] (::: args |:::: argfile(s))...")
+                                    "       %(prog)s [options] [-- command [args ...]] (::: args | :::+ args |:::: " +
+                                            "argfile(s) | ::::+ argfile(s))...")
+    parser.add_argument("-h", "--help", action="store_true", help="print this help message and exit")
     parser.add_argument("-V", "--version", action="version", version=version)
-    parser.add_argument("-n", "--ntasks", metavar="N", type=positive_int, help=f"number of CPUs required by each unit" +
-                        " of work ({configured_work_unit_size.cpus} by default)")
-    parser.add_argument("-G", "--gpus", metavar="N", type=nonnegative_int, help=f"number of GPUs required by each " +
-                        "unit of work ({configured_work_unit_size.gpus} by default)")
+    parser.add_argument("-v", "--verbose", action="store_true", help="print verbose output")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="don't submit, instead printing what would have been done")
+    parser.add_argument("-n", "--ntasks", metavar="N", type=positive_int,
+                        help="number of CPUs required by each unit of work")
+    parser.add_argument("-G", "--gpus", metavar="N", type=nonnegative_int,
+                        help="number of GPUs required by each unit of work")
     memgrp = parser.add_mutually_exclusive_group()
     memgrp.add_argument("-m", "--mem", metavar="N{K|M|G|T}", help="memory required by each unit of work")
-    memgrp.add_argument("--mem-per-cpu", metavar="N{K|M|G|T}",
-                        help=f"memory required by each CPU ({configured_work_unit_size.mem}M by default)")
+    memgrp.add_argument("--mem-per-cpu", metavar="N{K|M|G|T}", help="memory required by each CPU")
     memgrp.add_argument("--mem-per-gpu", metavar="N{K|M|G}", help="memory required by each GPU")
     parser.add_argument("-t",  "--time", metavar="D-HH:MM:SS",
-                        help=f"time required by each work unit ({configured_work_unit_size.time} mins by default); " +
-                              "see sbatch(1) for formatting")
+                        help="time required by each work unit; see sbatch(1) for formatting")
     parser.add_argument("-U", "--work-unit-size", metavar="CPUs,GPUs,mem,time", type=AllocationSize,
                         default=configured_work_unit_size,
-                        help=f"Allocation size of each work unit, with respective formats those of -n, -G, -m, and -t" +
+                        help=f"allocation size of each work unit, with respective formats those of -n, -G, -m, and -t" +
                              f" ({configured_work_unit_size} by default); this argument has lower precedence than the" +
                              " individual arguments it represents") 
     parser.add_argument("-T", "--array-task-size", metavar="CPUs,GPUs,mem,time", type=AllocationSize,
                         default=configured_array_task_size,
-                        help=f"Maximum desired allocation size of each array task, with the same format as -U " +
+                        help=f"maximum desired allocation size of each array task, with the same format as -U " +
                              f"({configured_array_task_size} by default); can be exceeded if it doesn't allow the job" +
                              " to fit within the maximum job array count")
     parser.add_argument("-a", "--arg-file", metavar="args.txt",
-                        action="append", help="Use args.txt as input rather than stdin; can be specified multiple " +
+                        action="append", help="use args.txt as input rather than stdin; can be specified multiple " +
                         "times, in which case all combinations of inputs from each arg file will be used")
     parser.add_argument("-l", "--logfile", metavar="output.log", default="slurm-auto-array-%A.log",
-                        help="slurm-auto-array log file. Setting to /dev/null will suppress all output, including " +
+                        help="slurm-auto-array log file; setting to /dev/null will suppress all output, including " +
                              "output and error files (slurm-auto-array-%%A.log by default)")
     parser.add_argument("-o", "--output", metavar="output.out", default="slurm-auto-array-%A_%a.out",
-                        help="File (with optional formatting) to which to write stdout for each array task; only a " +
+                        help="file (with optional formatting) to which to write stdout for each array task; only a " +
                              r"subset of sbatch's formatting options are supported, namely %%a, %%A, %%N, %%u, and " +
                              r"%%x; see sbatch(1) (slurm-auto-array-%%A_%%a.out by default); you can also specify %%0" +
                              r" to replace the command being run, %%1 to replace its first argument, %%2 to replace " +
                              "the second, etc.")
     parser.add_argument("-e", "--error", metavar="output.err", default=None,
-                        help="Analogous to output, but for stderr (stderr goes to output file by default)")
+                        help="analogous to output, but for stderr (stderr goes to output file by default)")
     parser.add_argument("--open-mode", metavar="{append|truncate}", default="truncate",
-                        help="Open log, output, and error files in the specified mode; see sbatch(1).")
+                        help="open log, output, and error files in the specified mode; see sbatch(1).")
     parser.add_argument("--exterior-delimiter", "--delimiter", metavar="D", default="\n",
                         help="string or regular expression separating work unit command lines; newline by default")
     parser.add_argument("--interior-delimiter", metavar="D", default="shlex",
                         help="string or regular expression separating arguments within work unit command lines; shlex" +
                         " is used by default, meaning that you can quote arguments as you probably expect")
-    parser.add_argument("-v", "--verbose", action="store_true", help="print verbose output")
-    parser.add_argument("--dry-run", action="store_true", help="don't submit, but print what would have been done")
+
+    # Add colon arguments; needs a goofy setup with the first ':' being replaced by '-' since argparse is weak
+    parser.add_argument("-::", metavar="arg(s)", help="run the given command on each following argument rather than " +
+                        "stdin; multiple sets of ':::' can be specified, in which case arguments will be crossed")
+    parser.add_argument("-::+", metavar="arg(s)",
+                        help="similar to ':::', but pairs its arguments with previous args rather than crossing them")
+    parser.add_argument("-:::", metavar="argfile(s)",
+                        help="similar to ':::', but using argument files rather than raw arguments")
+    parser.add_argument("-:::+", metavar="argfile(s)", help="'::::+' is to '::::' as ':::+' is to ':::'")
 
     # Add hidden convenience arguments
-    parser.add_argument("--default-work-unit-size", type=AllocationSize, default=configured_work_unit_size)
-    parser.add_argument("--default-array-task-size", type=AllocationSize, default=configured_array_task_size)
+    parser.add_argument("--default-work-unit-size", type=AllocationSize, default=configured_work_unit_size,
+                        help=argparse.SUPPRESS)
+    parser.add_argument("--default-array-task-size", type=AllocationSize, default=configured_array_task_size,
+                        help=argparse.SUPPRESS)
     parser.add_argument("--max-array-task-size", type=AllocationSize, default=configured_max_array_task_size,
                         help=argparse.SUPPRESS)
     parser.add_argument("--max-array-tasks", type=positive_int, default=configured_max_tasks, help=argparse.SUPPRESS)
@@ -338,6 +350,11 @@ def parse(args=sys.argv[1:]):
     args, slurm_args = parser.parse_known_args(args)
     if args.error is None:
         args.error = args.output
+
+    # Print modified help message if requested
+    if args.help:
+        print(parser.format_help().replace("-::", ":::"))
+        sys.exit()
 
     # Grab arguments specified with ::::?\+?
     colons_index = next((i for i in range(len(command)) if re.match(command[i], r"::::?\+?")), None)

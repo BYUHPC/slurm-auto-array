@@ -89,19 +89,27 @@ You'll need to run `parallel --citation; parallel --record-env` in a clean envir
 
 `-h`, `--help`
 
-:   Show a help message and exit.
+:   Print a help message and exit.
 
 `-V`, `--version`
 
 :   Show the version number and exit.
 
+`-v`, `--verbose`
+
+:   Print verbose output.
+
+`--dry-run`
+
+:   Don't submit; print what would have been done.
+
 `-n N`, `--ntasks N`
 
-:   Number of CPUs required by each unit of work (default: 1).
+:   Number of CPUs required by each unit of work.
 
 `-G N`, `--gpus N`
 
-:   Number of GPUs required by each unit of work (default: 0).
+:   Number of GPUs required by each unit of work.
 
 `-m N{K|M|G}`, `--mem N{K|M|G}`
 
@@ -117,17 +125,17 @@ You'll need to run `parallel --citation; parallel --record-env` in a clean envir
 
 `-t D-HH:MM:SS`, `--time D-HH:MM:SS`
 
-:   Time required by each unit of work; see **sbatch(1)** for formatting (default: 1 hour)
+:   Time required by each unit of work; see **sbatch(1)** for formatting.
 
 `-U CPUs,GPUs,mem,time`, `--work-unit-size CPUs,GPUs,mem,time`
 
-:   Allocation size of each work unit, with respective formats those of -n, -G, -m, and -t (1,0,2048M,60 by default).
-    This supersedes `-n`, `-G`, `--mem-per-cpu`, and `-t` if specified.
+:   Allocation size of each work unit, with respective formats those of -n, -G, -m, and -t (1,0,1G,1:00:00 by default).
+    `-n`, `-G`, `--mem-per-cpu`, and `-t` have higher precedence if specified.
 
 `-T CPUs,GPUs,mem,time`, `--array-task-size CPUs,GPUs,mem,time`
 
-:   Desired allocation size of each array task, with the same format as -U (8,2,16384M,720 by default); `-T` is ignored
-    if it isn't sufficiently large to allow the job array to submit
+:   Desired allocation size of each array task, with the same format as -U (4,1,16G,6:00:00 by default); `-T` is ignored
+    if it isn't sufficiently large to allow the job array to submit.
 
 `-a argfile, --arg-file argfile`
 
@@ -136,19 +144,23 @@ You'll need to run `parallel --citation; parallel --record-env` in a clean envir
 
 `-l output.log`, `--logfile output.log`
 
-:   `slurm-auto-array` log file; setting to `/dev/null` will suppress all output, including output and error files
+:   `slurm-auto-array` log file. Setting to `/dev/null` will suppress all output, including output and error files
     (default `slurm-auto-array-%A.log`).
 
 `-o output.out`, `--output output.out`
 
 :   File (with optional formatting) to which to write stdout for each array task; only a subset of sbatch's formatting
-    options are supported, namely `%%`, `%a`, `%A`, `%N`, `%u`, and `%x`; see sbatch(1) (default
-    `slurm-auto-array-%A_%a.out`). You can also specify `%0` to replace the command being run, `%1` to replace its first
-    argument, `%2` to replace the second, etc.
+    options are supported, namely `%%`, `%a`, `%A`, `%N`, `%u`, and `%x`. You can also specify `%0` to replace the
+    command being run, `%1` to replace its first argument, `%2` to replace the second, etc. See sbatch(1) (default
+    `slurm-auto-array-%A_%a.out`).
 
 `-e output.err`, `--error output.err`
 
 :   Analogous to `-o`, but for stderr; defaults to the file specified by `-o`.
+
+`--open-mode append|truncate`
+
+:   Open log, output, and error files in the specified mode; see sbatch(1) (default truncate).
 
 `--delimiter D, --exterior-delimiter D`
 
@@ -160,15 +172,7 @@ You'll need to run `parallel --citation; parallel --record-env` in a clean envir
 :   The string or regular expression separating arguments within a work unit's command line. Python's `shlex` is used by
     default, so you can quote arguments as you would probably expect.
 
-`-v`, `--verbose`
-
-:   Print verbose output (default: no).
-
-`--dry-run`
-
-:   Don't submit; print what would have been done (default: no).
-
-`::: args`
+`::: arg(s)`
 
 :   Run the given command on each of the arguments (separated by the interior delimiter) that follow `:::`. Specified
     after the command. Multiple sets of `:::` can be specified, in which case the arguments will be crossed. For
@@ -176,17 +180,17 @@ You'll need to run `parallel --citation; parallel --record-env` in a clean envir
     arguments (`a 1`, `a 2`, `b 1`, ...), for six total work units. If this is specified, stdin will be passed to the
     work unit command rather than being used as arguments.
 
-`:::+ args`
+`:::+ arg(s)`
 
 :   Behaves similarly to `:::`, but pairs its arguments with the previous arguments rather than crossing them. For
     example, `slurm-auto-array -- echo ::: a b c :::+ 1 2 3 4` will print `a 1`, `b 2`, and `c 3`. If the argument lists
     are of different length, the longer list is truncated.
 
-`:::: argfiles`
+`:::: argfile(s)`
 
-:   Similar to `:::`, but using argument files (see `--arg-file`) rather than arguments.
+:   Similar to `:::`, but using argument files (see `--arg-file`) rather than raw arguments.
 
-`::::+ argfiles`
+`::::+ argfile(s)`
 
 :   `::::+` is to `::::` as `:::+` is to `:::`.
 
