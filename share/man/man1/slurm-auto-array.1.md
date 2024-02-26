@@ -174,11 +174,11 @@ You'll need to run `parallel --citation; parallel --record-env` in a clean envir
 
 `::: arg(s)`
 
-:   Run the given command on each of the arguments (separated by the interior delimiter) that follow `:::`. Specified
-    after the command. Multiple sets of `:::` can be specified, in which case the arguments will be crossed. For
-    example, `slurm-auto-array -- echo ::: a b c ::: 1 2` will print every combination of the letter and number
-    arguments (`a 1`, `a 2`, `b 1`, ...), for six total work units. If this is specified, stdin will be passed to the
-    work unit command rather than being used as arguments.
+:   Run the given command on each of the arguments that follow `:::`. Specified after the command. Multiple sets of
+    `:::` can be specified, in which case the arguments will be crossed. For example,
+    `slurm-auto-array -- echo ::: a b c ::: 1 2` will print every combination of the letter and number arguments
+    (`a 1`, `a 2`, `b 1`, ...), for six total work units. If this is specified, stdin will be passed to the work unit
+    command rather than being used as arguments.
 
 `:::+ arg(s)`
 
