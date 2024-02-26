@@ -74,5 +74,5 @@ slurm-auto-array -- echo ::: 1 2 3 :::+ X Y Z :::+ a b c
 Use 4 colons rather than 3 to specify a file containing arguments rather than the arguments themselves. To run `echo $N alpha a` and `echo $N beta b` for each `N` from 3 to 8, run:
 
 ```shell
-slurm-auto-array -- echo :::: <(seq 3 8) :::: greek_letters.txt ::::+ latin_letters.txt
+slurm-auto-array -- echo :::: <(seq 3 8) ::: alpha beta ::::+ latin_letters.txt
 ```
