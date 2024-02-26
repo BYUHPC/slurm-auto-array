@@ -1,5 +1,5 @@
 ---
-title: GRADE
+title: SLURM-AUTO-ARRAY
 section: 1
 header: BYU Office of Research Computing
 ---
@@ -18,7 +18,7 @@ header: BYU Office of Research Computing
 [`-m N{K|M|G}` | `--mem-per-cpu N{K|M|G}` | `--mem-per-gpu N{K|M|G}`]
 [`-t D-HH:MM:SS`] [`-U CPUs,GPUs,mem,time`] [`-T CPUs,GPUs,mem,time`]
 [`-l x.log`] [`-o x.out`] [`-e x.err`] [`-v`] [`--dry-run`] [`-- COMMAND [args...]`]
-[`::: args ...` | `:::+ args ...` | `:::: argfiles ...` | `::::+ argfiles ...`]
+[(`::: args` | `:::+ args` | `:::: argfiles` | `::::+ argfiles`)...]
 
 You can also pass most arguments that `sbatch` takes, for instance to specify a QOS.
 
