@@ -38,3 +38,41 @@ make install
 You'll need to run `parallel --citation; parallel --record-env` in a clean environment before `slurm-auto-array` or `make check` will work.
 
 `make dist` will create a release tarball.
+
+
+
+## Usage
+
+In its simplest form, `slurm-auto-array` runs a command on on each of several user-supplied arguments--for example, to run `echo 1`, `echo 2`, and `echo 3`, you could submit with any of:
+
+```shell
+slurm-auto-array --output echo-%1.txt -- echo ::: 1 2 3
+slurm-auto-array --output echo-%1.txt -- echo :::: <(seq 3)
+seq 3 | slurm-auto-array --output echo -%1.txt -- echo
+```
+
+This will result in 3 files, `echo-1.txt`, `echo-2.txt`, and `echo-3.txt`, each containing the number in its title.
+
+If no `:::`, `:::+`, `::::`, or `::::+` arguments are specified, arguments are taken from stdin; if colon arguments are given, stdin is passed to the command to be run. One could thus use the following to get outputs `1 a b c`, `2 a b c`, and `3 a b c` in the files `slurm-auto-array-*.out`:
+
+```shell
+echo a b c | slurm-auto-array -- bash -c 'echo "$0 $(cat)"' :::: <(seq 3)
+```
+
+Multiple sets of arguments can be specified with `:::`, in which case the arguments will be crossed. To run `mycommand $letter $number` for every combination of `letter` between `A` and `D` and every `number` between 4 and 10, allocating 2 CPUs and 4 GB of memory for 3 hours for each run, use:
+
+```shell
+slurm-auto-array -n 2 --mem 4G -t 3:00:00 -- mycommand ::: A B C D ::: 4 5 6 7 8 9 10
+```
+
+Arguments can be paired rather than being crossed by using `:::+` rather than `:::`. To run `echo 1 X a`, `echo 2 Y b`, and `echo 3 Z c`, use:
+
+```shell
+slurm-auto-array -- echo ::: 1 2 3 :::+ X Y Z :::+ a b c
+```
+
+Use 4 colons rather than 3 to specify a file containing arguments rather than the arguments themselves. To run `echo $N alpha a` and `echo $N beta b` for each `N` from 3 to 8, run:
+
+```shell
+slurm-auto-array -- echo :::: <(seq 3 8) :::: greek_letters.txt ::::+ latin_letters.txt
+```
