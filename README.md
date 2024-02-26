@@ -6,6 +6,14 @@
 ls infiles/*.in | slurm-auto-array --time 1:00:00 --ntasks 1 --mem 1G -- mycmd --infile
 ```
 
+...or, equivalently:
+
+```shell
+slurm-auto-array --time 1:00:00 --ntasks 1 --mem 1G -- mycmd --infile :::: <(ls infiles/*.in)
+```
+
+`slurm-auto-array` aggregates work since job arrays consisting of many jobs are hard on the scheduler. If a user wants to run a command on each of 100,000 files, `slurm-auto-array` will by default submit at most 1,000 jobs, each in charge of at least 100 work units (which are run with `parallel`). The parameters that determine the amount of work units that each array task runs can be tuned; see [the **configuration** section of the man page](share/man/man1/slurm-auto-array.1.md#configuration). Despite the aggregation, output files can still be made distinct per work unit.
+
 Although we've found `slurm-auto-array` to work well [for many users on our system](https://rc.byu.edu/wiki/?id=slurm-auto-array), it's still a rough draft that hasn't been tested elsewhere--**treat it as early beta software**. [slurm-array-submit](https://github.com/juliangilbey/slurm-array-submit) is another option.
 
 
@@ -30,23 +38,3 @@ make install
 You'll need to run `parallel --citation; parallel --record-env` in a clean environment before `slurm-auto-array` or `make check` will work.
 
 `make dist` will create a release tarball.
-
-
-
-## Features
-
-### Aggregation
-
-`slurm-auto-array` aggregates work since job arrays consisting of many jobs are hard on the scheduler. If a user wants to run a command on each of 100,000 files, `slurm-auto-array` will by default submit at most 1,000 jobs, each in charge of at least 100 work units (which are run with `parallel`). The parameters that determine the amount of work units that each array task runs can be tuned; see [the **configuration** section of the man page](share/man/man1/slurm-auto-array.1.md#configuration). Despite the aggregation, output files can still be made distinct per work unit.
-
-
-
-## TODO
-
-Documentation and tests are by far the most important improvements needed. Outside of that, it would be nice to have:
-
-- Functionality similar to `parallel`'s "`:::`" to allow users to cross sets of arguments
-- Dynamic scheduling with a work database and consumer workers
-- Dask instead of parallel?
-
-In addition to the usual bugs and feature requests, please open an issue if you find any of the documentation confusing--the original purpose of `slurm-auto-array` was to make it easy for users to submit job arrays, and bad documentation defeats that core purpose.
