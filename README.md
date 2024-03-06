@@ -14,7 +14,7 @@ slurm-auto-array --time 1:00:00 --ntasks 1 --mem 1G -- mycmd --infile :::: <(ls 
 
 `slurm-auto-array` aggregates work since job arrays consisting of many jobs are hard on the scheduler. If a user wants to run a command on each of 100,000 files, `slurm-auto-array` will by default submit at most 1,000 jobs, each in charge of at least 100 work units (which are run with `parallel`). The parameters that determine the amount of work units that each array task runs can be tuned; see [the **configuration** section of the man page](share/man/man1/slurm-auto-array.1.md#configuration). Despite the aggregation, output files can still be made distinct per work unit.
 
-Although we've found `slurm-auto-array` to work well [for many users on our system](https://rc.byu.edu/wiki/?id=slurm-auto-array), it's still a rough draft that hasn't been tested elsewhere--**treat it as early beta software**. [slurm-array-submit](https://github.com/juliangilbey/slurm-array-submit) is another option.
+Although we've found `slurm-auto-array` to work well [for many users on our system](https://rc.byu.edu/), it's still a rough draft that hasn't been tested elsewhere--**treat it as early beta software**. [slurm-array-submit](https://github.com/juliangilbey/slurm-array-submit) is another option.
 
 
 
@@ -75,4 +75,45 @@ Use 4 colons rather than 3 to specify a file containing arguments rather than th
 
 ```shell
 slurm-auto-array -- echo :::: <(seq 3 8) ::: alpha beta ::::+ latin_letters.txt
+```
+
+
+
+## Worked example
+
+Suppose you have many input files scattered about the deep directory `infiles`, each named `*blah*.in`. For each of these files, you'd like to run the equivalent of:
+
+```bash
+mycommand --permutation $N \
+          --infile "$INFILE" \
+          --outfile "${INFILE%.in}-$N.out" \
+          &> "${INFILE%.in}-$N.log"
+```
+
+...for each `N` in 1 through 4, creating a `*blah*-$N.out` for each input file with `mycommand` and capturing the output in `*blah*-$N.log`. For convenience, you create a script, `run-mycommand.sh`, that takes two arguments: the permutation, and the filename stripped of its suffix. Here it is:
+
+```bash
+#!/bin/bash
+
+N="$1"
+IN="$2.in"
+OUT="$2-$N.out"
+
+mycommand --permutation "$N" --infile "$IN" --outfile "$OUT"
+```
+
+To use this with `slurm-auto-array`, you'll need the input files stripped of their suffix:
+
+```bash
+find infiles -name '*blah*.in' | sed 's/\.in$//'
+```
+
+...and the permutations, which can be obtained with `seq 4`.
+
+To run each instance of `mycommand` with 8 CPUs and 4 GB of memory for 2 hours using `slurm-auto-array`, you can use:
+
+```bash
+slurm-auto-array -n 8 --mem 4g -t 2:00:00 -o %2-%1.log -- \
+                 run-mycommand.sh :::: <(seq 4) \
+                                  :::: <(find infiles -name '*blah*.in' | sed 's/\.in$//')
 ```

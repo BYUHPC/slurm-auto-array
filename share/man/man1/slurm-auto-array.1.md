@@ -242,4 +242,4 @@ Michael Greenburg (michael_greenburg@byu.edu)
 
 **sbatch(1)**
 
-Worked example at https://rc.byu.edu/wiki/?id=slurm-auto-array
+https://github.com/BYUHPC/slurm-auto-array

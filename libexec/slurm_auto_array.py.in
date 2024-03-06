@@ -45,7 +45,7 @@ description = """slurm-auto-array automates the submission of sbatch job arrays.
                  In addition to the listed arguments, any sbatch arguments that won't interfere with slurm-auto-array's
                  operation can be supplied; see the man page for a list."""
 
-epilog = "See the man page or https://rc.byu.edu/wiki/?id=slurm-auto-array for more details and examples."
+epilog = "See the man page or https://github.com/BYUHPC/slurm-auto-array for more details and examples."
 
 version = "SAA_VERSION_STRING" # this gets substituted by make
 
