@@ -117,27 +117,27 @@ default_max_array_tasks     = "1000"
 # FORMAT CONVERSION FUNCTIONS ##########################################################################################
 
 # Convert a time string (specification in `man sbatch`) or integer to minutes, ignoring seconds (since so does Slurm)
-def time_to_mins(time):
+def time_to_secs(time):
     time_str = str(time)
     if re.match(r"^\d+$", time_str):               # minutes
-        return int(time_str)
+        return 60 * int(time_str)
     elif re.match(r"^\d+:\d+$", time_str):         # minutes:seconds
         minutes, seconds = time_str.split(":")
-        return int(minutes)
+        return 60 * int(minutes) + int(seconds)
     elif re.match(r"^\d+:\d+:\d+$", time_str):     # hours:minutes:seconds
         hours, minutes, seconds = time_str.split(":")
-        return 60 * int(hours) + int(minutes)
+        return 60 * 60 * int(hours) + 60 * int(minutes) + int(seconds)
     elif re.match(r"^\d+-\d+$", time_str):         # days-hours
         days, hours = time_str.split("-")
-        return 24 * 60 * int(days) + 60 * int(hours)
+        return 60 * 60 * (24 * int(days) + int(hours))
     elif re.match(r"^\d+-\d+:\d+$", time_str):     # days-hours:minutes
         days, hours_minutes = time_str.split("-")
-        hours, minutes = hours_minutes_seconds.split(":")
-        return 24 * 60 * int(days) + 60 * int(hours) + int(minutes)
+        hours, minutes = hours_minutes.split(":")
+        return 60 * (24 * 60 * int(days) + 60 * int(hours) + int(minutes))
     elif re.match(r"^\d+-\d+:\d+:\d+$", time_str): # days-hours:minutes:seconds
         days, hours_minutes_seconds = time_str.split("-")
         hours, minutes, seconds = hours_minutes_seconds.split(":")
-        return 24 * 60 * int(days) + 60 * int(hours) + int(minutes)
+        return 60 * (24 * 60 * int(days) + 60 * int(hours) + int(minutes)) + int(seconds)
     else:
         raise ValueError(f"Time specification {time_str} invalid")
     # TODO: return once, use `positive_int`
@@ -180,6 +180,15 @@ def mkdir_if_possible(dirname):
 
 # ALLOCATION SIZE ######################################################################################################
 
+# A function that takes a number of seconds and represents it as a human- (and Slurm-) readable time
+def secs_to_time_str(time_seconds):
+    days, rem = divmod(time_seconds, 24*60*60)
+    hours, rem = divmod(rem, 60*60)
+    minutes, seconds = divmod(rem, 60)
+    return f"{days}-{hours:02}:{minutes:02}:{seconds:02}"
+
+
+
 # A class that contains the size (in CPUs, GPUs, memory, and time) of an allocation
 class AllocationSize:
     def __init__(self, *args):
@@ -188,11 +197,11 @@ class AllocationSize:
         self.cpus = positive_int(cgmt[0])
         self.gpus = nonnegative_int(cgmt[1])
         self.mem  = mem_to_mb(cgmt[2])
-        self.time = time_to_mins(cgmt[3])
+        self.time = time_to_secs(cgmt[3])
         # TODO: error handling
 
     def __repr__(self):
-        return f"{self.cpus},{self.gpus},{self.mem}M,{self.time}"
+        return f"{self.cpus},{self.gpus},{self.mem}M,{secs_to_time_str(self.time)}"
 
 
 
@@ -215,7 +224,7 @@ def array_task_size_and_count(work_unit_count, work_unit_size, requested_array_t
     array_task_size = AllocationSize(work_unit_size.cpus * width,
                                      work_unit_size.gpus * width,
                                      work_unit_size.mem  * width,
-                                     work_unit_size.time * length)
+                                     secs_to_time_str(work_unit_size.time * length))
 
     # Minimize array task count--this way there will be at most one underutilized task
     array_task_count = math.ceil(work_unit_count / width / length)
@@ -464,7 +473,7 @@ def build_array_task_dir(arg_files, work_unit_size, array_task_size, max_array_t
     requested_array_task_size = AllocationSize(min(array_task_size.cpus, max_array_task_size.cpus),
                                                min(array_task_size.gpus, max_array_task_size.gpus),
                                                min(array_task_size.mem,  max_array_task_size.mem),
-                                               min(array_task_size.time, max_array_task_size.time))
+                                               secs_to_time_str(min(array_task_size.time, max_array_task_size.time)))
     array_task_size, array_task_count = array_task_size_and_count(work_unit_count, work_unit_size,
                                                                   requested_array_task_size)
     # Increase width if size isn't yet sufficient
@@ -517,7 +526,7 @@ def main(cmd_line_args=sys.argv[1:]):
     if args.mem:           work_unit_size.mem  = mem_to_mb(args.mem)
     elif args.mem_per_gpu: work_unit_size.mem  = mem_to_mb(args.mem_per_gpu) * args.gpus
     elif args.mem_per_cpu: work_unit_size.mem  = mem_to_mb(args.mem_per_cpu) * args.ntasks
-    if args.time:          work_unit_size.time = time_to_mins(args.time)
+    if args.time:          work_unit_size.time = time_to_secs(args.time)
 
     # Create the array task argument directory
     arg_file_subdir, array_task_size, work_unit_count, array_task_count = \
@@ -545,15 +554,15 @@ def main(cmd_line_args=sys.argv[1:]):
     logger.info(f"    max array task count: {args.max_array_tasks}")
     logger.info(f"    max array task size: {args.max_array_task_size}")
     logger.info( "--- per work unit ---")
-    logger.info(f"    CPUs:        {work_unit_size.cpus}")
-    logger.info(f"    GPUs:        {work_unit_size.gpus}")
-    logger.info(f"    memory (MB): {work_unit_size.mem}")
-    logger.info(f"    time (mins): {work_unit_size.time}")
+    logger.info(f"    CPUs:   {work_unit_size.cpus}")
+    logger.info(f"    GPUs:   {work_unit_size.gpus}")
+    logger.info(f"    memory: {work_unit_size.mem} MB")
+    logger.info(f"    time:   {secs_to_time_str(work_unit_size.time)}")
     logger.info( "--- per job array task ---")
-    logger.info(f"    CPUs:        {array_task_size.cpus}")
-    logger.info(f"    GPUs:        {array_task_size.gpus}")
-    logger.info(f"    memory (MB): {array_task_size.mem}")
-    logger.info(f"    time (mins): {array_task_size.time}")
+    logger.info(f"    CPUs:   {array_task_size.cpus}")
+    logger.info(f"    GPUs:   {array_task_size.gpus}")
+    logger.info(f"    memory: {array_task_size.mem} MB")
+    logger.info(f"    time:   {secs_to_time_str(array_task_size.time)}")
     logger.info(f"--- {work_unit_count} total work units ---")
     logger.info(f"--- {math.ceil(work_unit_count/array_task_count)} work units per array task ---")
     logger.info(f"--- {array_task_count} job array tasks ---")
@@ -576,7 +585,7 @@ def main(cmd_line_args=sys.argv[1:]):
                     f"--ntasks={ntasks}",
                     f"--cpus-per-task={work_unit_size.cpus}",
                     f"--mem-per-cpu={math.ceil(work_unit_size.mem/work_unit_size.cpus)}",
-                    f"--time={array_task_size.time}",
+                    f"--time={secs_to_time_str(array_task_size.time)}",
                     f"--array=0-{array_task_count-1}"] # account for zero indexing
     if work_unit_size.gpus: sbatch_args.append(f"--gpus-per-task={work_unit_size.gpus}")
     submit_command = ["sbatch"] + sbatch_args \

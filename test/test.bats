@@ -221,3 +221,21 @@ echo "$@' > "$bad_infile"
         done
     done
 }
+
+
+
+@test "disallowed sbatch arguments are rejected" {
+    for arg in -a --array --cpus-per-gpu --cpus-per-task --gpus-per-node --gpus-per-socket --gpus-per-task \
+               --ntasks-per-core --ntasks-per-node --ntasks-per-socket --wrap; do
+        run submit_job "placeholder" $arg -- echo
+        test $status -ne 0
+    done
+}
+
+
+
+@test "sub-minute times are handled correctly" {
+    job_id="$(submit_job "$(seq 6)" -t 00:00:10 --hold -- echo)"
+    test "$(scontrol_get $job_id TimeLimit '[0-9:]+')" = 00:01:00
+    scancel "$job_id"
+}
