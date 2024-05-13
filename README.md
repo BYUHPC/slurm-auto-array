@@ -48,7 +48,7 @@ In its simplest form, `slurm-auto-array` runs a command on on each of several us
 ```shell
 slurm-auto-array --output echo-%1.txt -- echo ::: 1 2 3
 slurm-auto-array --output echo-%1.txt -- echo :::: <(seq 3)
-seq 3 | slurm-auto-array --output echo -%1.txt -- echo
+seq 3 | slurm-auto-array --output echo-%1.txt -- echo
 ```
 
 This will result in 3 files, `echo-1.txt`, `echo-2.txt`, and `echo-3.txt`, each containing the number in its title.
