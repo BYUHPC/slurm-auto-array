@@ -105,7 +105,7 @@ mycommand --permutation "$N" --infile "$IN" --outfile "$OUT"
 To use this with `slurm-auto-array`, you'll need the input files stripped of their suffix:
 
 ```bash
-find infiles -name '*blah*.in' | sed 's/\.in$//'
+find infiles -name '*blah*.in' -exec basename {} .in \;
 ```
 
 ...and the permutations, which can be obtained with `seq 4`.
@@ -115,5 +115,5 @@ To run each instance of `mycommand` with 8 CPUs and 4 GB of memory for 2 hours u
 ```bash
 slurm-auto-array -n 8 --mem 4g -t 2:00:00 -o %2-%1.log -- \
                  run-mycommand.sh :::: <(seq 4) \
-                                  :::: <(find infiles -name '*blah*.in' | sed 's/\.in$//')
+                                  :::: <(find infiles -name '*blah*.in' -exec basename {} .in \;)
 ```
