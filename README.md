@@ -16,6 +16,8 @@ slurm-auto-array --time 1:00:00 --ntasks 1 --mem 1G -- mycmd --infile :::: <(ls 
 
 Although we've found `slurm-auto-array` to work well [for many users on our system](https://rc.byu.edu/), it's still a rough draft that hasn't been tested elsewhere--**treat it as early beta software**. [slurm-array-submit](https://github.com/juliangilbey/slurm-array-submit) is another option.
 
+**[Here](https://docs.google.com/presentation/d/1CuLcJSWLJRYiUxSAg49ALjxFFBbGLmk4-ZqpG_NgaB0/edit?usp=sharing) are the slides** from the 2024 RMACC presentation on `slurm-auto-array`.
+
 
 
 ## Installation
