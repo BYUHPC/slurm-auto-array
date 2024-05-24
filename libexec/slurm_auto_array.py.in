@@ -57,27 +57,6 @@ version = "SAA_VERSION_STRING" # this gets substituted by make
 
 # HELPERS ##############################################################################################################
 
-class OrderedSet:
-    def __init__(self, iterable=None):
-        self._dict = {}
-        if iterable:
-            for item in iterable:
-                self.add(item)
-
-    def add(self, item):
-        if item: self._dict[item] = None
-
-    def __iter__(self):
-        return iter(self._dict)
-
-    def __contains__(self, item):
-        return item in self._dict
-
-    def __len__(self):
-        return len(self._dict)
-
-
-
 def removesuffix(s, suffix):
     if suffix and s.endswith(suffix):
         return s[:-len(suffix)]
@@ -116,7 +95,7 @@ default_max_array_tasks     = "1000"
 
 # FORMAT CONVERSION FUNCTIONS ##########################################################################################
 
-# Convert a time string (specification in `man sbatch`) or integer to minutes, ignoring seconds (since so does Slurm)
+# Convert a time string (specification in `man sbatch`) or integer to seconds
 def time_to_secs(time):
     time_str = str(time)
     if re.match(r"^\d+$", time_str):               # minutes
@@ -447,6 +426,9 @@ def parse(args=sys.argv[1:]):
 
 # SET UP ARRAY TASKS ###################################################################################################
 
+# This function builds up a directory containing all the information required for each work unit to run. One file is
+# created for each set of arguments--for example, `slurm-auto-array -- echo ::: A B C ::: 1 2 3 4` would result in two
+# argument files. The size and amount of each array task is also determined and returned.
 def build_array_task_dir(arg_files, work_unit_size, array_task_size, max_array_task_size, max_array_tasks,
                          exterior_delimiter, dry_run=False):
     # Create the directory that will store the arguments
