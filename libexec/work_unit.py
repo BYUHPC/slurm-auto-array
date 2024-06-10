@@ -58,7 +58,7 @@ def outfile_name(format, work_unit_id, command):
 
     # Perform the replacements and return the file name
     for pattern, replacement in replacements.items():
-        for n in re.findall(f"%(\d+)?{pattern}", format):
+        for n in re.findall(fr"%(\d+)?{pattern}", format):
             if n and replacement.isdigit():
                 format = re.sub(f"%{n}{pattern}", replacement.zfill(int(n)), format)
             else:

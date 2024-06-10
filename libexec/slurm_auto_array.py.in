@@ -98,22 +98,22 @@ default_max_array_tasks     = "1000"
 # Convert a time string (specification in `man sbatch`) or integer to seconds
 def time_to_secs(time):
     time_str = str(time)
-    if re.match(r"^\d+$", time_str):               # minutes
+    if re.match(fr"^\d+$", time_str):               # minutes
         return 60 * int(time_str)
-    elif re.match(r"^\d+:\d+$", time_str):         # minutes:seconds
+    elif re.match(fr"^\d+:\d+$", time_str):         # minutes:seconds
         minutes, seconds = time_str.split(":")
         return 60 * int(minutes) + int(seconds)
-    elif re.match(r"^\d+:\d+:\d+$", time_str):     # hours:minutes:seconds
+    elif re.match(fr"^\d+:\d+:\d+$", time_str):     # hours:minutes:seconds
         hours, minutes, seconds = time_str.split(":")
         return 60 * 60 * int(hours) + 60 * int(minutes) + int(seconds)
-    elif re.match(r"^\d+-\d+$", time_str):         # days-hours
+    elif re.match(fr"^\d+-\d+$", time_str):         # days-hours
         days, hours = time_str.split("-")
         return 60 * 60 * (24 * int(days) + int(hours))
-    elif re.match(r"^\d+-\d+:\d+$", time_str):     # days-hours:minutes
+    elif re.match(fr"^\d+-\d+:\d+$", time_str):     # days-hours:minutes
         days, hours_minutes = time_str.split("-")
         hours, minutes = hours_minutes.split(":")
         return 60 * (24 * 60 * int(days) + 60 * int(hours) + int(minutes))
-    elif re.match(r"^\d+-\d+:\d+:\d+$", time_str): # days-hours:minutes:seconds
+    elif re.match(fr"^\d+-\d+:\d+:\d+$", time_str): # days-hours:minutes:seconds
         days, hours_minutes_seconds = time_str.split("-")
         hours, minutes, seconds = hours_minutes_seconds.split(":")
         return 60 * (24 * 60 * int(days) + 60 * int(hours) + int(minutes)) + int(seconds)
@@ -125,7 +125,7 @@ def time_to_secs(time):
 def mem_to_mb(mem):
     mem_str = str(mem)
     for suffix, multiplier in [('K', 1024**-1), ('M', 1), ('', 1), ('G', 1024), ('T', 1024**2)]:
-        if re.match(f'^\d+{suffix}$', mem_str, re.IGNORECASE):
+        if re.match(fr'^\d+{suffix}$', mem_str, re.IGNORECASE):
             return positive_int(re.sub(r'[a-zA-Z]', '', mem_str)) * multiplier
     raise ValueError(f'Memory specification {mem_str} invalid')
 
